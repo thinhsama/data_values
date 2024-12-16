@@ -16,10 +16,10 @@ from machine_learning_model import ClassifierMLP, LogisticRegression
 class KNN_Shapley():
   def __init__(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor, k_neighbors: int=10, batch_size: int = 32, embedding_model = None, random_state: int=42):
      # Đảm bảo dữ liệu là tensor PyTorch
-    self.x_train = torch.tensor(x_train, dtype=torch.float32) if not isinstance(x_train, torch.Tensor) else x_train
-    self.y_train = torch.tensor(y_train, dtype=torch.float32) if not isinstance(y_train, torch.Tensor) else y_train
-    self.x_valid = torch.tensor(x_valid, dtype=torch.float32) if not isinstance(x_valid, torch.Tensor) else x_valid
-    self.y_valid = torch.tensor(y_valid, dtype=torch.float32) if not isinstance(y_valid, torch.Tensor) else y_valid
+    self.x_train = torch.tensor(x_train, dtype=torch.float64) if not isinstance(x_train, torch.Tensor) else x_train
+    self.y_train = torch.tensor(y_train, dtype=torch.float64) if not isinstance(y_train, torch.Tensor) else y_train
+    self.x_valid = torch.tensor(x_valid, dtype=torch.float64) if not isinstance(x_valid, torch.Tensor) else x_valid
+    self.y_valid = torch.tensor(y_valid, dtype=torch.float64) if not isinstance(y_valid, torch.Tensor) else y_valid
     self.k_neighbors = k_neighbors
     self.batch_size = batch_size
     self.embedding_model = embedding_model
@@ -109,10 +109,10 @@ class KNNEvaluator():
 #         self.label_distances = None
 
 #         # Load datasets
-#         self.x_train = torch.tensor(x_train, dtype=torch.float32) if not isinstance(x_train, torch.Tensor) else x_train
-#         self.y_train = torch.tensor(y_train, dtype=torch.float32) if not isinstance(y_train, torch.Tensor) else y_train
-#         self.x_valid = torch.tensor(x_valid, dtype=torch.float32) if not isinstance(x_valid, torch.Tensor) else x_valid
-#         self.y_valid = torch.tensor(y_valid, dtype=torch.float32) if not isinstance(y_valid, torch.Tensor) else y_valid
+#         self.x_train = torch.tensor(x_train, dtype=torch.float64) if not isinstance(x_train, torch.Tensor) else x_train
+#         self.y_train = torch.tensor(y_train, dtype=torch.float64) if not isinstance(y_train, torch.Tensor) else y_train
+#         self.x_valid = torch.tensor(x_valid, dtype=torch.float64) if not isinstance(x_valid, torch.Tensor) else x_valid
+#         self.y_valid = torch.tensor(y_valid, dtype=torch.float64) if not isinstance(y_valid, torch.Tensor) else y_valid
 #         self.num_train, self.num_valid = len(y_train), len(y_valid)
 
 #     def _get_label_distances(self) -> torch.Tensor:
@@ -309,10 +309,10 @@ class DatasetDistance:
         [*self.covar_dim] = x_train[0].shape
         [*self.label_dim] = (1,) if y_valid.ndim == 1 else y_valid.shape[1:]
         self.label_distances = None
-        self.x_train = torch.tensor(x_train, dtype=torch.float32) if not isinstance(x_train, torch.Tensor) else x_train
-        self.y_train = torch.tensor(y_train, dtype=torch.float32) if not isinstance(y_train, torch.Tensor) else y_train
-        self.x_valid = torch.tensor(x_valid, dtype=torch.float32) if not isinstance(x_valid, torch.Tensor) else x_valid
-        self.y_valid = torch.tensor(y_valid, dtype=torch.float32) if not isinstance(y_valid, torch.Tensor) else y_valid
+        self.x_train = torch.tensor(x_train, dtype=torch.float64) if not isinstance(x_train, torch.Tensor) else x_train
+        self.y_train = torch.tensor(y_train, dtype=torch.float64) if not isinstance(y_train, torch.Tensor) else y_train
+        self.x_valid = torch.tensor(x_valid, dtype=torch.float64) if not isinstance(x_valid, torch.Tensor) else x_valid
+        self.y_valid = torch.tensor(y_valid, dtype=torch.float64) if not isinstance(y_valid, torch.Tensor) else y_valid
 
     def _get_label_distance(self) -> torch.Tensor:
         if self.label_distances is not None:

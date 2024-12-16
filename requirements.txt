@@ -1,5 +1,5 @@
 torch==2.5.1                # PyTorch
-numpy==1.24.4             # Numpy for numerical computations
+numpy==2.1.3             # Numpy for numerical computations
 scikit-learn==1.5.2        # scikit-learn for evaluation metrics and utilities
 tqdm==4.67.1               # tqdm for progress bars
 matplotlib==3.9.3          # For optional plotting

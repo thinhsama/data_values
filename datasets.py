@@ -220,6 +220,39 @@ def split_data_train_val_test(X, y, train_size: float, valid_size: float, random
     return X_train, y_train, X_valid, y_valid, X_test, y_test
 
 
+def create_unbalanced_dataset(x_embeddings, y_labels, target_class=6, target_samples=5000, other_samples=2500):
+    unique_classes = torch.unique(y_labels).cpu().numpy()
+    
+    x_unbalanced = []
+    y_unbalanced = []
+    
+    for cls in unique_classes:
+        indices = torch.where(y_labels == cls)[0]
+        if cls == target_class:
+            selected_indices = np.random.choice(indices.cpu(), target_samples, replace=True)
+        else:
+            selected_indices = np.random.choice(indices.cpu(), other_samples, replace=False)
+        
+        x_unbalanced.append(x_embeddings[selected_indices])
+        y_unbalanced.append(y_labels[selected_indices])
+    
+    x_unbalanced = torch.cat(x_unbalanced, dim=0)
+    y_unbalanced = torch.cat(y_unbalanced, dim=0)
+    
+    # Shuffle dữ liệu để đảm bảo tính ngẫu nhiên
+    shuffled_indices = torch.randperm(len(y_unbalanced))
+    x_unbalanced = x_unbalanced[shuffled_indices]
+    y_unbalanced = y_unbalanced[shuffled_indices]
+    
+    return x_unbalanced, y_unbalanced
+
+def check_dataset_balance(y_labels, dataset_name="Original"):
+    class_counts = torch.bincount(y_labels)
+    total_samples = len(y_labels)
+    print(f"\n{dataset_name} Dataset Class Distribution:")
+    for cls, count in enumerate(class_counts):
+        print(f"Class {cls}: {count} samples ({(count / total_samples) * 100:.2f}%)")
+
 # if __name__ == "__main__":
 #     # Test Iris dataset
 #     print("\nIris Dataset:")

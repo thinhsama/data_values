@@ -39,7 +39,7 @@ def data_experiment(shap_vals_lst, shap_vals_algo_lst, X_train, y_train, X_test,
                 model1 = model.clone()
                 X_train_subset = X_train.index_select(0, torch.tensor(selected_idxs, dtype=torch.long)).detach().clone()
                 y_train_subset = y_train.index_select(0, torch.tensor(selected_idxs, dtype=torch.long)).detach().clone()
-                model1.fit(X_train_subset, y_train_subset, epochs=100, lr=0.1)
+                model1.fit(X_train_subset, y_train_subset, epochs=1000, lr=0.1)
                 preds = model1.predict(X_test)
                 #acc = f1_score(y_test, preds, average='weighted') if metrics == 'acc' else roc_auc_score(y_test, preds)
                 acc = accuracy_score(y_test, preds) if metrics == 'acc' else roc_auc_score(y_test, preds)

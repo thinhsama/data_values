@@ -56,7 +56,13 @@ class ClassifierMLP(nn.Module):
             outputs = self.forward(X_valid)
             predictions = outputs.argmax(dim=1)
         return predictions
-
+    def clone(self):
+        # Tạo bản sao của model bằng deepcopy
+        input_dim = self.mlp.input.in_features  # Lấy input dimension từ lớp đầu tiên
+        num_classes = self.mlp.output_lin.out_features  # Lấy output dimension từ lớp cuối cùng
+        new_model = ClassifierMLP(input_dim, num_classes)
+        new_model.load_state_dict(self.state_dict())  # Copy trọng số
+        return new_model
 
 # Logistic Regression
 class LogisticRegression(nn.Module):

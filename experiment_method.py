@@ -8,6 +8,8 @@ from typing import Dict, List
 # Helper functions and models
 from machine_learning_model import ClassifierMLP, LogisticRegression
 from visualize import plot_performance, plot_corrupted_sample_discovery
+from sklearn.metrics import accuracy_score, f1_score, auc, roc_auc_score
+from tqdm import tqdm
 def noisy_detection(data_values: np.ndarray, noise_train_indices: np.ndarray) -> Dict[str, float]:
     """
     Evaluate the ability to identify noisy indices using F1 score.
@@ -229,6 +231,126 @@ def performance_remove_noise(data_values: np.ndarray, noisy_train_indices: np.nd
     }
 
     return f1_scores
+from sklearn.metrics import precision_score, recall_score, f1_score
+import numpy as np
+def evaluate_label_noise(data_values:np.ndarray, noise_indices: np.ndarray)->dict[str, float]:
+    #Indices with Values < 0
+    #Found in Noisy Train Indices (TP)
+    #False Positives (FP - Not Noisy but Selected)
+    #False Negatives (FN - Noisy but Not Selected)
+    # Tạo nhãn thực tế (1 là nhãn nhiễu, 0 là sạch)
+    num_points = len(data_values)
+    sorted_value_list = np.argsort(data_values)
+    noise_pred_ind = data_values[sorted_value_list] < 0
+    found_in_noisy = np.intersect1d(sorted_value_list[noise_pred_ind], noise_indices)
+    not_in_noisy = np.setdiff1d(sorted_value_list[noise_pred_ind], noise_indices)
+    not_found_in_small = np.setdiff1d(noise_indices, sorted_value_list[noise_pred_ind])
+    TP = len(found_in_noisy)
+    print("found_in_noisy:", found_in_noisy)    
+    FP = len(not_in_noisy)
+    print("not in noisy but selected:", not_in_noisy)
+    FN = len(not_found_in_small)
+    print("noisy but not (selected or found in noisy):", not_found_in_small)
+    precision = TP / (TP + FP)
+    recall = TP / (TP + FN)
+    f1 = 2 * (precision * recall) / (precision + recall)
+    return {
+        "Precision": precision,
+        "Recall": recall,
+        "F1-Score": f1
+    }
+def evaluate_label_noise_20(model, X_train, y_train, X_valid, y_valid , data_values: np.ndarray, noise_indices: np.ndarray, per: float=0.2) -> dict[str, float]:
+    num_points = len(data_values)
+    sorted_value_list = np.argsort(data_values)
+    # Chọn ra 20% điểm tệ nhất (điểm có data_values thấp nhất)
+    num_to_select = int(per * num_points)  # Lấy 20% trong tổng số điểm
+    noise_pred_ind = sorted_value_list[:num_to_select]  # Chọn 20% điểm thấp nhất
+    real_pred_ind = sorted_value_list[num_to_select:]  # Chọn 80% điểm còn lại
+    model1 = model.clone()
+    model1.fit(X_train[real_pred_ind], y_train[real_pred_ind], epochs=1000, lr = 0.01)
+    y_pred = model1.predict(X_valid)
+    F1_model = f1_score(y_valid, y_pred, average='macro')
+    # Đếm TP, FP, FN
+    found_in_noisy = np.intersect1d(noise_pred_ind, noise_indices)
+    not_in_noisy = np.setdiff1d(noise_pred_ind, noise_indices)
+    not_found_in_small = np.setdiff1d(noise_indices, noise_pred_ind)
+    
+    TP = len(found_in_noisy)
+    FP = len(not_in_noisy)
+    FN = len(not_found_in_small)
+    
+    # Tính Precision, Recall, F1-score
+    precision = TP / (TP + FP) if (TP + FP) > 0 else 0
+    recall = TP / (TP + FN) if (TP + FN) > 0 else 0
+    f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
+    
+    print("Found in noisy (TP):", found_in_noisy)
+    print("Not in noisy but selected (FP):", not_in_noisy)
+    print("Noisy but not selected (FN):", not_found_in_small)
+    
+    return {
+        "F1-model": F1_model,
+        "Precision": precision,
+        "Recall": recall,
+        "F1-Score": f1
+    }
+
+import torch
+import numpy as np
+from sklearn.linear_model import LogisticRegression
+from sklearn.metrics import accuracy_score
+from tqdm import tqdm
+
+def compute_WAD(model, X_train, y_train, X_test, y_test, importance_order):
+    """
+    Tính toán WAD (Weighted Average Drop) để đánh giá thứ tự mức độ quan trọng của các điểm dữ liệu.
+    
+    Args:
+        model (LogisticRegression): Mô hình được huấn luyện.
+        X_train (np.array): Dữ liệu huấn luyện.
+        y_train (np.array): Nhãn huấn luyện.
+        X_test (np.array): Dữ liệu kiểm thử.
+        y_test (np.array): Nhãn kiểm thử.
+        importance_order (list): Thứ tự mức độ quan trọng của các điểm dữ liệu.
+    
+    Returns:
+        float: Giá trị WAD.
+    """
+    n = len(importance_order)
+    accuracy_drop = []
+    model1 = model.clone()
+    # Tính độ chính xác ban đầu với toàn bộ tập dữ liệu
+    model1.fit(X_train, y_train)
+    initial_accuracy = accuracy_score(y_test, model1.predict(X_test))
+
+    # Lần lượt loại bỏ từng điểm theo thứ tự quan trọng
+    sorted_importance_order = np.argsort(importance_order)[::-1]
+    sorted_importance_order = sorted_importance_order.copy()
+    for j in tqdm(range(1, n+1)):
+        idx_to_keep = sorted_importance_order[j:] # Loại bỏ j điểm quan trọng đầu tiên
+        if len(idx_to_keep) == 0:
+            break
+        model1 = model.clone()
+        model1.fit(X_train[idx_to_keep], y_train[idx_to_keep], epochs = 100, lr = 0.1)
+        new_accuracy = accuracy_score(y_test, model1.predict(X_test))
+        drop = initial_accuracy - new_accuracy
+        accuracy_drop.append(drop)
+    
+    # Tính WAD theo công thức
+    wad = np.sum([1/j * np.sum(accuracy_drop[:j]) for j in range(1, n+1)])
+    return wad
+
+# # Ví dụ
+# X_train = np.random.rand(100, 10)
+# y_train = np.random.randint(0, 2, 100)
+# X_test = np.random.rand(30, 10)
+# y_test = np.random.randint(0, 2, 30)
+# importance_order = np.arange(100)  # Ví dụ: Thứ tự giảm dần theo mức độ quan trọng
+
+# model = LogisticRegression()
+# wad_result = compute_WAD(model, X_train, y_train, X_test, y_test, importance_order)
+# print(f"WAD: {wad_result}")
+
 # if __name__ == "__main__":
 #     # Dữ liệu giả lập
 #     num_samples = 100

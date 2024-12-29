@@ -7,10 +7,10 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from data_valuate import KNN_Shapley, DatasetDistance
+from data_valuate import KNN_Shapley, DatasetDistance_geoloss, DatasetDistance_OT, KNNRegression, CKNN_Shapley
 from data_valuate import TMCSampler, ClassWiseShapley, BetaShapley
 from visualize import plot_corrupted_sample_discovery
-from experiment_method import discover_corrupted_sample
+from experiment_method import discover_corrupted_sample, evaluate_label_noise, compute_WAD, evaluate_label_noise_20
 # f1_score
 from sklearn.metrics import f1_score
 from machine_learning_model import ClassifierMLP, LogisticRegression
@@ -46,9 +46,22 @@ class KNNEvaluator(BaseEvaluator):
         dist_calculator = KNN_Shapley(x_train, y_train, x_valid, y_valid, k_neighbors=self.k_neighbors, batch_size=self.batch_size, random_state=self.random_state)
         dist_calculator.train_data_values()
         return dist_calculator.evaluate_data_values()
+class CKNNEvaluator(BaseEvaluator):
+    """
+    KNN-based evaluator using Shapley values.
+    """
+    def __init__(self, k_neighbors: int = 10, T:int = 20, default:bool =1, batch_size: int = 32, **kwargs):
+        super().__init__(**kwargs)
+        self.k_neighbors = k_neighbors
+        self.T = T
+        self.batch_size = batch_size
+        self.default = default
+    def evaluate_data_values(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor) -> np.ndarray:
+        dist_calculator = CKNN_Shapley(x_train, y_train, x_valid, y_valid, k_neighbors=self.k_neighbors, T= self.T, default=self.default ,batch_size=self.batch_size, random_state=self.random_state)
+        dist_calculator.train_data_values()
+        return dist_calculator.evaluate_data_values()
 
-
-class LavaEvaluator(BaseEvaluator):
+class LavaEvaluator_OT(BaseEvaluator):
     """
     Lava evaluator using Optimal Transport.
     """
@@ -59,10 +72,22 @@ class LavaEvaluator(BaseEvaluator):
         self.ot_method = ot_method
 
     def evaluate_data_values(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor) -> np.ndarray:
-        dist_calculator = DatasetDistance(x_train, y_train, x_valid, y_valid, device=self.device, lam_x=self.lam_x, lam_y=self.lam_y, ot_method=self.ot_method)
+        dist_calculator = DatasetDistance_OT(x_train, y_train, x_valid, y_valid, device=self.device, lam_x=self.lam_x, lam_y=self.lam_y, ot_method=self.ot_method)
         u, _ = dist_calculator.dual_sol()
         return dist_calculator.compute_distance(u)
+class LavaEvaluator_geomloss(BaseEvaluator):
+    """
+    Lava evaluator using Optimal Transport.
+    """
+    def __init__(self, lam_x: float = 1.0, lam_y: float = 1.0, **kwargs):
+        super().__init__(**kwargs)
+        self.lam_x = lam_x
+        self.lam_y = lam_y
 
+    def evaluate_data_values(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor) -> np.ndarray:
+        dist_calculator = DatasetDistance_geoloss(x_train, y_train, x_valid, y_valid, device=self.device, lam_x=self.lam_x, lam_y=self.lam_y)
+        u, _ = dist_calculator.dual_sol()
+        return dist_calculator.compute_distance(u)
 class TMCEvaluator:
     def __init__(self, model = None, mc_epochs: int = 100, min_cardinality: int = 5, **kwargs):
         self.model = model
@@ -102,8 +127,9 @@ class ExperimentRunner:
     def __init__(self, evaluators: List[BaseEvaluator], output_dir: Optional[str] = None):
         self.evaluators = evaluators
         self.results = {}
-        self.timings = {}  # Lưu thời gian chạy của từng evaluator
+        self.timings = {}
         self.output_dir = output_dir
+        
         if output_dir:
             import pathlib
             self.output_dir = pathlib.Path(output_dir)
@@ -113,20 +139,36 @@ class ExperimentRunner:
         """
         Run all evaluators on the dataset.
         """
+        self.x_train = x_train
+        self.y_train = y_train
+        self.x_valid = x_valid
+        self.y_valid = y_valid
+        self.x_test = x_valid
+        self.y_test = y_valid
         for evaluator in self.evaluators:
-            print(f"Running evaluator: {evaluator.__class__.__name__}")
-            start_time = time.time()  # Bắt đầu đếm thời gian
-            result = evaluator.evaluate_data_values(x_train, y_train, x_valid, y_valid, **kwargs) 
-            end_time = time.time()  # Kết thúc đếm thời gian
-            self.results[evaluator.__class__.__name__] = result
-            self.timings[evaluator.__class__.__name__] = end_time - start_time
-            print(f"{evaluator.__class__.__name__} completed in {end_time - start_time:.2f} seconds.")
+            evaluator_name = self._get_evaluator_name(evaluator)
+            print(f"Running evaluator: {evaluator_name}")
+            
+            start_time = time.time()
+            result = evaluator.evaluate_data_values(x_train, y_train, x_valid, y_valid, **kwargs)
+            end_time = time.time()
+            
+            self.results[evaluator_name] = result
+            self.timings[evaluator_name] = end_time - start_time
+            print(f"{evaluator_name} completed in {end_time - start_time:.2f} seconds.")
         return self.results
 
+    def _get_evaluator_name(self, evaluator):
+        """
+        Get the correct name of the evaluator (either function or class).
+        """
+        if hasattr(evaluator, '__name__'):
+            return evaluator.__name__  # For functions
+        elif hasattr(evaluator, '__class__'):
+            return evaluator.__class__.__qualname__  # For class methods
+        return str(evaluator)
+
     def save_results(self, file_name: str = "results.csv"):
-        """
-        Save the results to a CSV file.
-        """
         if not self.output_dir:
             print("Output directory is not set. Cannot save results.")
             return
@@ -136,9 +178,6 @@ class ExperimentRunner:
         print(f"Results saved to {save_path}")
 
     def plot_results(self, title: str = "Evaluation Results", save_plot: bool = False):
-        """
-        Plot the results for visualization.
-        """
         if not self.results:
             print("No results to plot.")  
             return
@@ -158,20 +197,43 @@ class ExperimentRunner:
             plt.savefig(plot_path)
             print(f"Plot saved to {plot_path}")
         plt.show()
- #,metric: Callable[[np.ndarray], Any]
+
     def evaluate(self, noisy_train_indices: np.ndarray) -> Dict[str, Any]:
-        """
-        Evaluate the results using a specified metric.
-        """
-        #evaluation_scores = {}
         evaluation_corrupt = {}
-        for evaluator_name, values in self.results.items():
+        for evaluator in self.evaluators:
+            evaluator_name = self._get_evaluator_name(evaluator)
+            values = self.results[evaluator_name]
             evaluation_corrupt[evaluator_name] = discover_corrupted_sample(values, noisy_train_indices)
-            #evaluation_scores[evaluator_name] = metric(values)
-        for key, value in evaluation_corrupt.items():
-            print(f"{key}: {value}")
-            plot_corrupted_sample_discovery(value, evaluator_name=key, noise_rate=0.2)
+            
+            print(f"{evaluator_name}: {evaluation_corrupt[evaluator_name]}")
+            plot_corrupted_sample_discovery(evaluation_corrupt[evaluator_name], evaluator_name=evaluator_name, noise_rate=0.2)
+        
         return evaluation_corrupt
+    def calculate_WAD(self, model) -> Dict[str, Any]:
+        WAD = {}
+        for evaluator in self.evaluators:
+            evaluator_name = self._get_evaluator_name(evaluator)
+            values = self.results[evaluator_name]
+            WAD[evaluator_name] = compute_WAD(model, self.x_train, self.y_train, self.x_test, self.y_test, values)
+            print(f"{evaluator_name}: {WAD[evaluator_name]}")
+        return WAD
+    def calculate_label_noise(self, noisy_train_indices: np.ndarray) -> Dict[str, Any]:
+        label_noise = {}
+        for evaluator in self.evaluators:
+            evaluator_name = self._get_evaluator_name(evaluator)
+            values = self.results[evaluator_name]
+            label_noise[evaluator_name] = evaluate_label_noise(values, noisy_train_indices)
+            print(f"{evaluator_name}: {label_noise[evaluator_name]}")
+        return label_noise
+    def calculate_label_noise_20(self, model, noisy_train_indices: np.ndarray, per:float=0.2) -> Dict[str, Any]:
+        label_noise = {}
+        for evaluator in self.evaluators:
+            evaluator_name = self._get_evaluator_name(evaluator)
+            values = self.results[evaluator_name]
+            label_noise[evaluator_name] = evaluate_label_noise_20(model, self.x_train, self.y_train, self.x_test, self.y_test, values, noisy_train_indices, per)
+            print(f"{evaluator_name}: {label_noise[evaluator_name]}")
+        return label_noise
+
 # if __name__ == "__main__":
 #     # Step 1: Prepare Dataset
 #     num_train = 100

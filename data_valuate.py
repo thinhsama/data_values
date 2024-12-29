@@ -13,13 +13,64 @@ from scipy.special import comb
 # f1_score
 from sklearn.metrics import f1_score
 from machine_learning_model import ClassifierMLP, LogisticRegression
+
+class CKNN_Shapley():
+  def __init__(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor, k_neighbors: int=10, T:int = 0, default: bool = 1, batch_size: int = 32, embedding_model = None, random_state: int=42):
+    self.x_train = torch.tensor(x_train, dtype=torch.float32) if not isinstance(x_train, torch.Tensor) else x_train
+    self.y_train = torch.tensor(y_train, dtype=torch.long) if not isinstance(y_train, torch.Tensor) else y_train
+    self.x_valid = torch.tensor(x_valid, dtype=torch.float32) if not isinstance(x_valid, torch.Tensor) else x_valid
+    self.y_valid = torch.tensor(y_valid, dtype=torch.long) if not isinstance(y_valid, torch.Tensor) else y_valid
+    self.k_neighbors = k_neighbors
+    self.batch_size = batch_size
+    self.embedding_model = embedding_model
+    self.random_state = check_random_state(random_state)
+    self.T = T # T = N-2K
+    self.default = default
+  def match(self, y: torch.Tensor) -> torch.Tensor:
+    return (y == self.y_valid).float()
+  def train_data_values(self):
+    n = len(self.x_train)
+    m = len(self.x_valid)
+    #self.T = n-self.k_neighbors*2
+    #self.T = 1
+    if self.default:
+        self.T = n//2
+    if self.embedding_model is not None:
+      self.x_train, self.x_valid = self.embedding_model(self.x_train, self.x_valid)
+    #x_train, x_valid = self.embeddings(self.x_train, self.x_valid)
+    x_train_view, x_valid_view = self.x_train.view(n, -1), self.x_valid.view(m, -1)
+    #print(x_train_view.shape, x_valid_view.shape)
+    dist_list = []
+    for x_train_batch in DataLoader(x_train_view, batch_size=self.batch_size, shuffle=False):
+      dist_row = []
+      for x_val_batch in DataLoader(x_valid_view, batch_size=self.batch_size, shuffle=False):
+        dist_batch = torch.cdist(x_train_batch, x_val_batch)
+        dist_row.append(dist_batch)
+      dist_list.append(torch.cat(dist_row, dim=1))
+    dist = torch.cat(dist_list, dim=0)
+    #print(dist.shape)
+    sort_indices = torch.argsort(dist, dim=0, stable=True)
+    #print(sort_indices.shape)
+    #print(sort_indices)
+    y_train_sort = self.y_train[sort_indices]
+    score = torch.zeros_like(dist)
+    for i in tqdm.tqdm(range(n-1, n-self.T-1, -1)):
+      score[sort_indices[i], range(m)] = 0
+    score[sort_indices[n-self.T-1], range(m)] = self.match(y_train_sort[n-self.T-1])/(n-self.T)
+    for i in tqdm.tqdm(range(n-self.T-1, -1, -1)):
+      score[sort_indices[i], range(m)] = score[sort_indices[i+1], range(m)] + (self.match(y_train_sort[i]) - self.match(y_train_sort[i+1]))/max(self.k_neighbors, i+1)
+    self.data_values = score.mean(axis=1).detach().numpy()
+    return self
+  def evaluate_data_values(self)->np.ndarray:
+    return self.data_values
+
 class KNN_Shapley():
   def __init__(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor, k_neighbors: int=10, batch_size: int = 32, embedding_model = None, random_state: int=42):
      # Đảm bảo dữ liệu là tensor PyTorch
-    self.x_train = torch.tensor(x_train, dtype=torch.float64) if not isinstance(x_train, torch.Tensor) else x_train
-    self.y_train = torch.tensor(y_train, dtype=torch.float64) if not isinstance(y_train, torch.Tensor) else y_train
-    self.x_valid = torch.tensor(x_valid, dtype=torch.float64) if not isinstance(x_valid, torch.Tensor) else x_valid
-    self.y_valid = torch.tensor(y_valid, dtype=torch.float64) if not isinstance(y_valid, torch.Tensor) else y_valid
+    self.x_train = torch.tensor(x_train, dtype=torch.float32) if not isinstance(x_train, torch.Tensor) else x_train
+    self.y_train = torch.tensor(y_train, dtype=torch.long) if not isinstance(y_train, torch.Tensor) else y_train
+    self.x_valid = torch.tensor(x_valid, dtype=torch.float32) if not isinstance(x_valid, torch.Tensor) else x_valid
+    self.y_valid = torch.tensor(y_valid, dtype=torch.long) if not isinstance(y_valid, torch.Tensor) else y_valid
     self.k_neighbors = k_neighbors
     self.batch_size = batch_size
     self.embedding_model = embedding_model
@@ -56,6 +107,104 @@ class KNN_Shapley():
     return self
   def evaluate_data_values(self)->np.ndarray:
     return self.data_values
+class KNNRegression:
+    """
+    KNN Regression for Data Valuation.
+    This class computes data valuation scores for regression problems using K-Nearest Neighbors.
+
+    Parameters
+    ----------
+    k_neighbors : int
+        Number of neighbors to consider.
+    batch_size : int
+        Batch size for processing.
+    device : torch.device
+        Device to perform computations (CPU or GPU).
+    """
+    def __init__(
+        self,
+        x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor, k_neighbors: int=10, batch_size: int = 32, embedding_model = None, random_state: int=42,
+    ):
+        # Đảm bảo dữ liệu là tensor PyTorch
+        self.x_train = torch.tensor(x_train, dtype=torch.float32) if not isinstance(x_train, torch.Tensor) else x_train
+        self.y_train = torch.tensor(y_train, dtype=torch.long) if not isinstance(y_train, torch.Tensor) else y_train
+        self.x_valid = torch.tensor(x_valid, dtype=torch.float32) if not isinstance(x_valid, torch.Tensor) else x_valid
+        self.y_valid = torch.tensor(y_valid, dtype=torch.long) if not isinstance(y_valid, torch.Tensor) else y_valid
+        self.k_neighbors = k_neighbors
+        self.batch_size = batch_size
+        self.embedding_model = embedding_model
+        self.random_state = check_random_state(random_state)
+        
+
+    def compute_distances(self, x_train: torch.Tensor, x_valid: torch.Tensor) -> torch.Tensor:
+        """
+        Compute pairwise distances between training and validation points.
+
+        Parameters
+        ----------
+        x_train : torch.Tensor
+            Training data of shape (n_train, n_features).
+        x_valid : torch.Tensor
+            Validation data of shape (n_valid, n_features).
+
+        Returns
+        -------
+        distances : torch.Tensor
+            Pairwise distances of shape (n_train, n_valid).
+        """
+        dist_list = []
+        for x_train_batch in DataLoader(x_train, batch_size=self.batch_size):
+            dist_row = []
+            for x_valid_batch in DataLoader(x_valid, batch_size=self.batch_size):
+                dist_row.append(torch.cdist(x_train_batch, x_valid_batch))
+            dist_list.append(torch.cat(dist_row, dim=1))
+        return torch.cat(dist_list, dim=0)
+
+    def train_data_values(self):
+        """
+        Compute Shapley values for training data.
+
+        Returns
+        -------
+        shapley_values : np.ndarray
+            Shapley values for each training data point.
+        """
+        n_train = len(self.x_train)
+        n_valid = len(self.x_valid)
+
+        x_train, y_train = self.x_train.view(n_train, -1), self.y_train.view(n_train)
+        x_valid, y_valid = self.x_valid.view(n_valid, -1), self.y_valid.view(n_valid)
+
+        # Tính khoảng cách và sắp xếp
+        distances = self.compute_distances(x_train, x_valid)
+        sort_indices = torch.argsort(distances, dim=0, stable=True)
+        y_train_sorted = y_train[sort_indices]
+
+        # Khởi tạo điểm Shapley
+        score = torch.zeros_like(distances, dtype=torch.float32)
+
+        # Gán giá trị ban đầu
+        score[sort_indices[n_train - 1], torch.arange(n_valid)] = (
+            torch.abs(y_train_sorted[n_train - 1, torch.arange(n_valid)] - y_valid) / n_train
+        )
+
+        # Tính toán điểm Shapley
+        for i in tqdm.tqdm(range(n_train - 2, -1, -1), desc="Computing Shapley Values"):
+            score[sort_indices[i], torch.arange(n_valid)] = (
+                score[sort_indices[i + 1], torch.arange(n_valid)]
+                + (min(self.k_neighbors, i + 1) / (self.k_neighbors * (i + 1)))
+                * (
+                    torch.abs(y_train_sorted[i, torch.arange(n_valid)] - y_valid)
+                    - torch.abs(y_train_sorted[i + 1, torch.arange(n_valid)] - y_valid)
+                )
+            )
+
+        # Tính giá trị Shapley trung bình
+        self.data_values = score.mean(dim=1).cpu().numpy()
+        #print('Shapley Values:', shapley_values)
+        return self
+    def evaluate_data_values(self)->np.ndarray:
+        return - self.data_values
 class KNNEvaluator():
   def __init__(self, k_neighbors: int=10, batch_size: int = 32, embedding_model = None, random_state: int=42):
     self.k_neighbors = k_neighbors
@@ -65,6 +214,7 @@ class KNNEvaluator():
   def evaluate_data_values(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor) -> np.ndarray:
     dist_calculator = KNN_Shapley(x_train, y_train, x_valid, y_valid, k_neighbors=self.k_neighbors, batch_size=self.batch_size, embedding_model=self.embedding_model, random_state=self.random_state)
     dist_calculator = dist_calculator.train_data_values()
+    #print('dist_calculator:', dist_calculator)
     return dist_calculator.evaluate_data_values()
 
 
@@ -74,7 +224,6 @@ class KNNEvaluator():
 #     1: geomloss.utils.distances,
 #     2: lambda x, y: geomloss.utils.squared_distances(x, y) / 2,
 # }
-
 # class DatasetDistance:
 #     """
 #     Lớp tính toán khoảng cách dữ liệu sử dụng Optimal Transport, với hỗ trợ GeomLoss.
@@ -90,29 +239,22 @@ class KNNEvaluator():
 #         entreg: float = 0.1,
 #         lam_x: float = 1.0,
 #         lam_y: float = 1.0,
-#         inner_ot_loss: str = "sinkhorn",
-#         inner_ot_debiased: bool = False,
-#         inner_ot_p: int = 2,
-#         inner_ot_entreg: float = 0.1,
 #         device: torch.device = torch.device("cpu"),
+#         ot_method: str = 'balance_ot_sinkhorn',
 #     ):
 #         self.feature_cost = feature_cost
-#         self.inner_ot_loss = inner_ot_loss
 #         self.p = p
 #         self.entreg = entreg
 #         self.lam_x = lam_x
 #         self.lam_y = lam_y
-#         self.inner_ot_p = inner_ot_p
-#         self.inner_ot_entreg = inner_ot_entreg
-#         self.inner_ot_debiased = inner_ot_debiased
 #         self.device = device
 #         self.label_distances = None
 
 #         # Load datasets
-#         self.x_train = torch.tensor(x_train, dtype=torch.float64) if not isinstance(x_train, torch.Tensor) else x_train
-#         self.y_train = torch.tensor(y_train, dtype=torch.float64) if not isinstance(y_train, torch.Tensor) else y_train
-#         self.x_valid = torch.tensor(x_valid, dtype=torch.float64) if not isinstance(x_valid, torch.Tensor) else x_valid
-#         self.y_valid = torch.tensor(y_valid, dtype=torch.float64) if not isinstance(y_valid, torch.Tensor) else y_valid
+#         self.x_train = torch.tensor(x_train, dtype=torch.float32) if not isinstance(x_train, torch.Tensor) else x_train
+#         self.y_train = torch.tensor(y_train, dtype=torch.float32) if not isinstance(y_train, torch.Tensor) else y_train
+#         self.x_valid = torch.tensor(x_valid, dtype=torch.float32) if not isinstance(x_valid, torch.Tensor) else x_valid
+#         self.y_valid = torch.tensor(y_valid, dtype=torch.float32) if not isinstance(y_valid, torch.Tensor) else y_valid
 #         self.num_train, self.num_valid = len(y_train), len(y_valid)
 
 #     def _get_label_distances(self) -> torch.Tensor:
@@ -122,22 +264,18 @@ class KNNEvaluator():
 
 #         pwdist = partial(
 #             pwdist_exact,
-#             symmetric=False,
-#             p=self.inner_ot_p,
-#             loss=self.inner_ot_loss,
-#             debias=self.inner_ot_debiased,
-#             entreg=self.inner_ot_entreg,
+#             p=self.p,
 #             cost_function=self.feature_cost,
+#             entreg=self.entreg,
 #             device=self.device,
 #         )
 
-#         DYY1 = pwdist(self.x_train, self.y_train)
-#         DYY2 = pwdist(self.x_valid, self.y_valid)
+#         # DYY1 = pwdist(self.x_train, self.y_train)
+#         # DYY2 = pwdist(self.x_valid, self.y_valid)
 #         DYY12 = pwdist(self.x_train, self.y_train, self.x_valid, self.y_valid)
 
-#         D = torch.cat([torch.cat([DYY1, DYY12], 1), torch.cat([DYY12.t(), DYY2], 1)])
-#         #print(D.shape) 2*class
-#         self.label_distances = D
+#         # D = torch.cat([torch.cat([DYY1, DYY12], 1), torch.cat([DYY12.t(), DYY2], 1)])
+#         self.label_distances = DYY12
 #         return self.label_distances
 
 #     def dual_sol(self) -> tuple[float, torch.Tensor]:
@@ -158,12 +296,11 @@ class KNNEvaluator():
 #             cost=cost_geomloss,
 #             debias=True,
 #             blur=self.entreg ** (1 / self.p),
-#             #reach = 0.1,  # Điều chỉnh "mass variation" cho UOT
 #             backend="tensorized",
 #         )
 
-#         Z1 = torch.cat((self.x_train, self.y_train.float().unsqueeze(dim=1)), -1)
-#         Z2 = torch.cat((self.x_valid, self.y_valid.float().unsqueeze(dim=1)), -1)
+#         Z1 = torch.cat((self.x_train, self.y_train.unsqueeze(dim=1)), -1)
+#         Z2 = torch.cat((self.x_valid, self.y_valid.unsqueeze(dim=1)), -1)
 #         N, M = len(self.x_train), len(self.x_valid)
 #         a = torch.ones(N, device=self.device) / N
 #         b = torch.ones(M, device=self.device) / M
@@ -174,65 +311,42 @@ class KNNEvaluator():
 #             pi = [F_i, G_j]
 
 #         return pi
+
 #     def compute_distance(self, pi) -> np.ndarray:
-#         # return data values for each traning data point
-#         # get the clibrated gradient of dual solution = data values
-#         f1k = pi.squeeze()
-#         num_points = len(f1k) -1
+#         """Return data values for each training data point."""
+#         f1k = pi[0].squeeze()
+#         num_points = len(f1k) - 1
 #         train_gradients = f1k
-#         train_gradients = -1*train_gradients
-#         return train_gradients.numpy(force = True)
+#         train_gradients = -1 * train_gradients
+#         return train_gradients.cpu().numpy()
+
 # def pwdist_exact(
 #     X1: torch.Tensor,
 #     Y1: torch.Tensor,
 #     X2: Optional[torch.Tensor] = None,
 #     Y2: Optional[torch.Tensor] = None,
-#     symmetric: bool = False,
-#     loss: str = "sinkhorn",
 #     cost_function: Union[Literal["euclidean"], Callable[..., torch.Tensor]] = "euclidean",
 #     p: int = 2,
-#     #reach: float = 0.1,  # Thêm yếu tố Unbalanced OT
-#     debias: bool = True,
 #     entreg: float = 1e-1,
 #     device: torch.device = torch.device("cpu"),
 # ) -> torch.Tensor:
 #     if X2 is None:
-#         symmetric = True
 #         X2, Y2 = X1, Y1
-
-#     c1 = torch.unique(Y1)
-#     c2 = torch.unique(Y2)
-#     n1, n2 = len(c1), len(c2)
-
-#     if symmetric:
-#         pairs = list(itertools.combinations(range(n1), 2))
-#     else:
-#         pairs = list(itertools.product(range(n1), range(n2)))
 
 #     if cost_function == "euclidean":
 #         cost_function = cost_routines[p]
 
-#     distance = geomloss.SamplesLoss(
-#         loss=loss,
-#         p=p,
-#         cost=cost_function,
-#         debias=debias,
-#         blur=entreg ** (1 / p),
-#         #reach = reach,
-#     )
-
-#     D = torch.zeros((n1, n2), device=device, dtype=X1.dtype)
-#     for i, j in tqdm.tqdm(pairs, leave=False, desc="Computing label-to-label distance"):
-#         m1 = X1[Y1 == c1[i]].to(device)
-#         m2 = X2[Y2 == c2[j]].to(device)
-#         a = torch.ones(len(m1), device=device) / len(m1)
-#         b = torch.ones(len(m2), device=device) / len(m2)
-#         D[i, j] = distance(a, m1, b, m2).item()
-#         #print('gia tri i,j:',i,j,m1.shape, m2.shape, D[i, j])
-#         if symmetric:
-#             D[j, i] = D[i, j]
-
+#     D = torch.zeros((len(Y1), len(Y2)), device=device, dtype=X1.dtype)
+#     for i, (x1, y1) in enumerate(zip(X1, Y1)):
+#         for j, (x2, y2) in enumerate(zip(X2, Y2)):
+#             # Khoảng cách Euclidean giữa nhãn Y1 và Y2
+#             label_dist = torch.abs(y1 - y2)
+#             # Tính khoảng cách đặc trưng
+#             feature_dist = cost_function(x1.unsqueeze(0), x2.unsqueeze(0))
+#             # Kết hợp hai thành phần
+#             D[i, j] = label_dist
 #     return D
+
 # def batch_augmented_cost(
 #     Z1: torch.Tensor,
 #     Z2: torch.Tensor,
@@ -242,41 +356,280 @@ class KNNEvaluator():
 #     lam_x: float = 1.0,
 #     lam_y: float = 1.0,
 # ) -> torch.Tensor:
-#     Y1 = Z1[:, :, -1].long()
-#     Y2 = Z2[:, :, -1].long()
-
+#     Y1 = Z1[:, :, -1]
+#     Y2 = Z2[:, :, -1]
+#     features_Z1 = Z1[:, :, :-1]
+#     features_Z2 = Z2[:, :, :-1]
+#     def zscore_to_unit_interval(tensor):
+#         # Tính Z-score
+#         mean = tensor.mean()
+#         std = tensor.std()
+        
+#         # Nếu std gần bằng 0, thêm giá trị nhỏ để tránh chia 0
+#         if std < 1e-6:
+#             std += 1e-6
+        
+#         zscore = (tensor - mean) / std  # Chuẩn hóa Z-score
+        
+#         # Kiểm tra giá trị min và max trong Z-score
+#         z_min = zscore.min()
+#         z_max = zscore.max()
+        
+#         # Nếu min và max gần bằng nhau, thêm epsilon để tránh chia 0
+#         if z_max - z_min < 1e-6:
+#             z_max += 1e-6
+        
+#         # Đưa Z-score về [0, 1]
+#         scaled = (zscore - z_min) / (z_max - z_min)
+#         scaled = torch.clamp(scaled, 0, 1)  # Đảm bảo giá trị nằm trong khoảng [0, 1]
+        
+#         return scaled
+#     # Tính ma trận khoảng cách đặc trưng (feature distance)
 #     if feature_cost is None or feature_cost == "euclidean":
-#         C1 = cost_routines[p](Z1[:, :, :-1], Z2[:, :, :-1])
+#         C1 = cost_routines[p](features_Z1, features_Z2)
 #     else:
-#         C1 = feature_cost(Z1[:, :, :-1], Z2[:, :, :-1])
+#         C1 = feature_cost(features_Z1, features_Z2)
 
+#     # Tính ma trận khoảng cách nhãn (label distance)
 #     if W is not None:
-#         M = W.shape[1] * Y1[:, :, None] + Y2[:, None, :]
-#         C2 = W.flatten()[M.flatten(start_dim=1)].reshape(-1, Y1.shape[1], Y2.shape[1])
+#         # M = W.shape[1] * Y1[:, :, None] + Y2[:, None, :]
+#         # C2 = W.flatten()[M.flatten(start_dim=1)].reshape(-1, Y1.shape[1], Y2.shape[1])
+#         C2 = W.reshape(-1, Y1.shape[1], Y2.shape[1])
 #     else:
-#         raise ValueError("Must provide label distances or other precomputed metrics")
-#     #C1  = C1 / C1.max()
-#     #C2 = C2 / C2.max()
-#     print('C1 la:', C1)
-#     print('C2 la:', C2)
+#         C2 = torch.abs(Y1[:, :, None] - Y2[:, None, :])
 
-#     return lam_x * C1 + lam_y * (C2 / p)
+#     # Tổng hợp ma trận khoảng cách
+#     print('C1 shape:', C1.shape)
+#     print('C2 shape:', C2.shape)
+#     print('C1:', C1)
+#     print('C2:', C2)
+#     C1 = zscore_to_unit_interval(C1)
+#     C2 = zscore_to_unit_interval(C2)
+#     print('C1:', C1)
+#     print('C2:', C2)
+#     return lam_x * C1 + lam_y * C2/p
+
+# Định nghĩa cost routines cho GeomLoss
+cost_routines = {
+    1: geomloss.utils.distances,
+    2: lambda x, y: geomloss.utils.squared_distances(x, y) / 2,
+}
+class DatasetDistance_geoloss:
+    """
+    Lớp tính toán khoảng cách dữ liệu sử dụng Optimal Transport, với hỗ trợ GeomLoss.
+    """
+    def __init__(
+        self,
+        x_train: torch.Tensor,
+        y_train: torch.Tensor,
+        x_valid: torch.Tensor,
+        y_valid: torch.Tensor,
+        feature_cost: Union[Literal["euclidean"], Callable[..., torch.Tensor]] = "euclidean",
+        p: int = 2,
+        entreg: float = 0.1,
+        lam_x: float = 1.0,
+        lam_y: float = 1.0,
+        inner_ot_loss: str = "sinkhorn",
+        inner_ot_debiased: bool = False,
+        inner_ot_p: int = 2,
+        inner_ot_entreg: float = 0.1,
+        device: torch.device = torch.device("cpu"),
+        ot_method: str = 'balance_ot_sinkhorn',
+    ):
+        self.feature_cost = feature_cost
+        self.inner_ot_loss = inner_ot_loss
+        self.p = p
+        self.entreg = entreg
+        self.lam_x = lam_x
+        self.lam_y = lam_y
+        self.inner_ot_p = inner_ot_p
+        self.inner_ot_entreg = inner_ot_entreg
+        self.inner_ot_debiased = inner_ot_debiased
+        self.device = device
+        self.label_distances = None
+
+        # Load datasets
+        self.x_train = torch.tensor(x_train, dtype=torch.float32) if not isinstance(x_train, torch.Tensor) else x_train
+        self.y_train = torch.tensor(y_train, dtype=torch.long) if not isinstance(y_train, torch.Tensor) else y_train
+        self.x_valid = torch.tensor(x_valid, dtype=torch.float32) if not isinstance(x_valid, torch.Tensor) else x_valid
+        self.y_valid = torch.tensor(y_valid, dtype=torch.long) if not isinstance(y_valid, torch.Tensor) else y_valid
+        self.num_train, self.num_valid = len(y_train), len(y_valid)
+
+    def _get_label_distances(self) -> torch.Tensor:
+        """Precompute label-to-label distances."""
+        if self.label_distances is not None:
+            return self.label_distances
+
+        pwdist = partial(
+            pwdist_exact,
+            symmetric=False,
+            p=self.inner_ot_p,
+            loss=self.inner_ot_loss,
+            debias=self.inner_ot_debiased,
+            entreg=self.inner_ot_entreg,
+            cost_function=self.feature_cost,
+            device=self.device,
+        )
+
+        DYY1 = pwdist(self.x_train, self.y_train)
+        DYY2 = pwdist(self.x_valid, self.y_valid)
+        DYY12 = pwdist(self.x_train, self.y_train, self.x_valid, self.y_valid)
+
+        #D = torch.cat([torch.cat([DYY1, DYY12], 1), torch.cat([DYY12.t(), DYY2], 1)])
+        # thay ham D
+        D = torch.cat([torch.cat([DYY12, DYY1], 1), torch.cat([DYY12.t(), DYY2], 1)])
+        #print(D.shape) 2*class
+        self.label_distances = D
+        return self.label_distances
+
+    def dual_sol(self) -> tuple[float, torch.Tensor]:
+        """Compute dataset distance using optimal transport."""
+        wasserstein = self._get_label_distances().to(self.device)
+
+        cost_geomloss = partial(
+            batch_augmented_cost,
+            W=wasserstein,
+            lam_x=self.lam_x,
+            lam_y=self.lam_y,
+            feature_cost=self.feature_cost,
+        )
+        loss = geomloss.SamplesLoss(
+            loss="sinkhorn",
+            p=self.p,
+            cost=cost_geomloss,
+            debias=True,
+            blur=self.entreg ** (1 / self.p),
+            #reach = 0.1,  # Điều chỉnh "mass variation" cho UOT
+            backend="tensorized",
+        )
+        Z1 = torch.cat((self.x_train, self.y_train.float().unsqueeze(dim=1)), -1)
+        Z2 = torch.cat((self.x_valid, self.y_valid.float().unsqueeze(dim=1)), -1)
+        N, M = len(self.x_train), len(self.x_valid)
+        a = torch.ones(N, device=self.device) / N
+        b = torch.ones(M, device=self.device) / M
+        with torch.no_grad():
+            loss.debias = False
+            loss.potentials = True
+            F_i, G_j = loss(a, Z1.to(self.device), b, Z2.to(self.device))
+            pi = [F_i, G_j]
+
+        return pi
+    def compute_distance(self, pi) -> np.ndarray:
+        # return data values for each traning data point
+        # get the clibrated gradient of dual solution = data values
+        f1k = pi.squeeze()
+        num_points = len(f1k) -1
+        train_gradients = f1k
+        train_gradients = -1*train_gradients
+        return train_gradients.numpy(force = True)
+def pwdist_exact(
+    X1: torch.Tensor,
+    Y1: torch.Tensor,
+    X2: Optional[torch.Tensor] = None,
+    Y2: Optional[torch.Tensor] = None,
+    symmetric: bool = False,
+    loss: str = "sinkhorn",
+    cost_function: Union[Literal["euclidean"], Callable[..., torch.Tensor]] = "euclidean",
+    p: int = 2,
+    #reach: float = 0.1,  # Thêm yếu tố Unbalanced OT
+    debias: bool = True,
+    entreg: float = 1e-1,
+    device: torch.device = torch.device("cpu"),
+) -> torch.Tensor:
+    if X2 is None:
+        symmetric = True
+        X2, Y2 = X1, Y1
+
+    c1 = torch.unique(Y1)
+    c2 = torch.unique(Y2)
+    n1, n2 = len(c1), len(c2)
+
+    if symmetric:
+        pairs = list(itertools.combinations(range(n1), 2))
+    else:
+        pairs = list(itertools.product(range(n1), range(n2)))
+
+    if cost_function == "euclidean":
+        cost_function = cost_routines[p]
+
+    distance = geomloss.SamplesLoss(
+        loss=loss,
+        p=p,
+        cost=cost_function,
+        debias=debias,
+        blur=entreg ** (1 / p),
+        #reach = 0.1,
+    )
+    D = torch.zeros((n1, n2), device=device, dtype=X1.dtype)
+    for i, j in tqdm.tqdm(pairs, leave=False, desc="Computing label-to-label distance"):
+        m1 = X1[Y1 == c1[i]].to(device)
+        m2 = X2[Y2 == c2[j]].to(device)
+           
+        a = torch.ones(len(m1), device=device) / len(m1)
+        b = torch.ones(len(m2), device=device) / len(m2)
+        D[i, j] = distance(a, m1, b, m2).item()
+        if c1[i] == c2[j]:
+            sigma = 0.1 
+            #D[i, j] = torch.exp(-D[i, j]**2 / (2 * sigma**2))
+            D[i, j] = D[i, j] * 0.1
+            print(c1[i], c2[j], D[i, j])
+        else:
+            D[i, j] = D[i, j] * 1
+        #print('gia tri i,j:',i,j,m1.shape, m2.shape, D[i, j])
+        if symmetric:
+            D[j, i] = D[i, j]
+
+    return D
+def batch_augmented_cost(
+    Z1: torch.Tensor,
+    Z2: torch.Tensor,
+    W: Optional[torch.Tensor] = None,
+    feature_cost: Optional[str] = None,
+    p: int = 2,
+    lam_x: float = 1.0,
+    lam_y: float = 1.0,
+) -> torch.Tensor:
+    Y1 = Z1[:, :, -1].long()
+    Y2 = Z2[:, :, -1].long()
+    #print('W', W)
+    if feature_cost is None or feature_cost == "euclidean":
+        C1 = cost_routines[p](Z1[:, :, :-1], Z2[:, :, :-1])
+    else:
+        C1 = feature_cost(Z1[:, :, :-1], Z2[:, :, :-1])
+
+    if W is not None:
+        M = W.shape[1] * Y1[:, :, None] + Y2[:, None, :]
+        #print(torch.unique(M.flatten(start_dim=1)))
+        #print(W.flatten()[M.flatten(start_dim=1)])
+        #print((W.flatten()[M.flatten(start_dim=1)]).shape)
+        C2 = W.flatten()[M.flatten(start_dim=1)].reshape(-1, Y1.shape[1], Y2.shape[1])
+    else:
+        raise ValueError("Must provide label distances or other precomputed metrics")
+    #C1  = C1 / C1.max()
+    #C2 = C2 / C2.max()
+    print('C1 la:', C1)
+    print('C2 la:', C2)
+    #C2_unique = torch.unique(C2)
+    #print('C2_unique:', C2_unique)
+    cost_geoloss = lam_x * C1 + lam_y * (C2 / p)
+    print('cost_geoloss:', cost_geoloss)
+    return lam_x * C1 + lam_y * (C2 / p)
 # complute LAVA
 # LAVA IMPLEMENT - OPTIMAL TRANSPORT
-import ot
-import numpy as np
-import torch
-import tqdm
-from torch.utils.data import DataLoader
-from typing import Callable, Literal, Optional, Union
-import itertools  # Thiếu import
+# import ot
+# import numpy as np
+# import torch
+# import tqdm
+# from torch.utils.data import DataLoader
+# from typing import Callable, Literal, Optional, Union
+# import itertools  # Thiếu import
 
-cost_routines = {
+cost_routines_ot = {
     1: lambda x, y: ot.dist(x.cpu().numpy(), y.cpu().numpy()),  # Sử dụng hàm ot.dist để tính khoảng cách
     2: lambda x, y: ot.dist(x.cpu().numpy(), y.cpu().numpy()) / 2,
 }
 
-class DatasetDistance:
+class DatasetDistance_OT:
     def __init__(
         self,
         x_train: torch.Tensor,
@@ -309,10 +662,10 @@ class DatasetDistance:
         [*self.covar_dim] = x_train[0].shape
         [*self.label_dim] = (1,) if y_valid.ndim == 1 else y_valid.shape[1:]
         self.label_distances = None
-        self.x_train = torch.tensor(x_train, dtype=torch.float64) if not isinstance(x_train, torch.Tensor) else x_train
-        self.y_train = torch.tensor(y_train, dtype=torch.float64) if not isinstance(y_train, torch.Tensor) else y_train
-        self.x_valid = torch.tensor(x_valid, dtype=torch.float64) if not isinstance(x_valid, torch.Tensor) else x_valid
-        self.y_valid = torch.tensor(y_valid, dtype=torch.float64) if not isinstance(y_valid, torch.Tensor) else y_valid
+        self.x_train = torch.tensor(x_train, dtype=torch.float32) if not isinstance(x_train, torch.Tensor) else x_train
+        self.y_train = torch.tensor(y_train, dtype=torch.long) if not isinstance(y_train, torch.Tensor) else y_train
+        self.x_valid = torch.tensor(x_valid, dtype=torch.float32) if not isinstance(x_valid, torch.Tensor) else x_valid
+        self.y_valid = torch.tensor(y_valid, dtype=torch.long) if not isinstance(y_valid, torch.Tensor) else y_valid
 
     def _get_label_distance(self) -> torch.Tensor:
         if self.label_distances is not None:
@@ -356,7 +709,7 @@ class DatasetDistance:
         else:
             pairs = list(itertools.product(range(n1), range(n2)))
         if cost_function is None:
-            cost_function = cost_routines[p]
+            cost_function = cost_routines_ot[p]
         D = torch.zeros((n1, n2), device=device)
         for i, j in tqdm.tqdm(pairs, leave=False, desc="computing label-to-label"):
             m1 = X1[Y1 == c1[i]].to(device)
@@ -428,7 +781,7 @@ class DatasetDistance:
             Y1 = Z1[:, -1].long()
             Y2 = Z2[:, -1].long()
             if feature_cost == 'euclidean':
-                C1 = cost_routines[p](Z1[:, :-1], Z2[:, :-1])
+                C1 = cost_routines_ot[p](Z1[:, :-1], Z2[:, :-1])
             else:
                 C1 = feature_cost(Z1[:, :-1], Z2[:, :-1])
             if W is not None:
@@ -494,19 +847,19 @@ class DatasetDistance:
       train_gradients = -1*train_gradients
       return train_gradients.numpy(force = True)
 
-class LavaEvaluator:
-    def __init__(self, random_state=0, device=torch.device("cpu")):
-        self.random_state = random_state
-        self.device = device
-        torch.manual_seed(random_state)
+# class LavaEvaluator:
+#     def __init__(self, random_state=0, device=torch.device("cpu")):
+#         self.random_state = random_state
+#         self.device = device
+#         torch.manual_seed(random_state)
 
-    def evaluate_data_values(self, x_train, y_train, x_valid, y_valid, lam_x=1.0, lam_y=1.0):
-        # Train model and evaluate data values based on OT
-        #dist_calculator = DatasetDistance(x_train, y_train, x_valid, y_valid, device=self.device, ot_method='unbalance_ot_sinkhorn')
-        dist_calculator = DatasetDistance(x_train, y_train, x_valid, y_valid, device=self.device, lam_x = lam_x, lam_y=lam_y)
-        u = dist_calculator.dual_sol()
-        dist = dist_calculator.compute_distance(u[0])
-        return dist
+#     def evaluate_data_values(self, x_train, y_train, x_valid, y_valid, lam_x=1.0, lam_y=1.0):
+#         # Train model and evaluate data values based on OT
+#         #dist_calculator = DatasetDistance(x_train, y_train, x_valid, y_valid, device=self.device, ot_method='unbalance_ot_sinkhorn')
+#         dist_calculator = DatasetDistance(x_train, y_train, x_valid, y_valid, device=self.device, lam_x = lam_x, lam_y=lam_y)
+#         u = dist_calculator.dual_sol()
+#         dist = dist_calculator.compute_distance(u[0])
+        # return dist
     
 class TMCSampler:
     def __init__(self, mc_epochs: int = 100, min_cardinality: int = 5, random_state: int = 42):
@@ -540,10 +893,10 @@ class ClassWiseShapley:
         self.model = model  # Thêm mô hình vào class
 
     def input_data(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor):
-        self.x_train = x_train
-        self.y_train = y_train
-        self.x_valid = x_valid
-        self.y_valid = y_valid
+        self.x_train = torch.tensor(x_train, dtype=torch.float32) if not isinstance(x_train, torch.Tensor) else x_train
+        self.y_train = torch.tensor(y_train, dtype=torch.long) if not isinstance(y_train, torch.Tensor) else y_train
+        self.x_valid = torch.tensor(x_valid, dtype=torch.float32) if not isinstance(x_valid, torch.Tensor) else x_valid
+        self.y_valid = torch.tensor(y_valid, dtype=torch.long) if not isinstance(y_valid, torch.Tensor) else y_valid
         self.train_classes = y_train if y_train.ndim == 1 else torch.argmax(y_train, dim=1)
         self.classes = torch.unique(self.train_classes)
         self.data_values = np.zeros((len(x_train),))
@@ -597,10 +950,10 @@ class BetaShapley:
         """
         Input training data and utility function.
         """
-        self.x_train = x_train
-        self.y_train = y_train
-        self.x_valid = x_valid
-        self.y_valid = y_valid
+        self.x_train = torch.tensor(x_train, dtype=torch.float32) if not isinstance(x_train, torch.Tensor) else x_train
+        self.y_train = torch.tensor(y_train, dtype=torch.long) if not isinstance(y_train, torch.Tensor) else y_train
+        self.x_valid = torch.tensor(x_valid, dtype=torch.float32) if not isinstance(x_valid, torch.Tensor) else x_valid
+        self.y_valid = torch.tensor(y_valid, dtype=torch.long) if not isinstance(y_valid, torch.Tensor) else y_valid
         self.num_points = len(x_train)
         self.sampler.set_coalition(self.num_points)
         self.data_values = np.zeros(self.num_points)

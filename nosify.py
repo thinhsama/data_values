@@ -76,8 +76,8 @@ def add_gauss_noise(x_train: np.ndarray, x_valid: np.ndarray, x_test: Optional[n
     noise_train_indices = rs.choice(num_train, num_noisy_t, replace=False)
     noise_valid_indices = rs.choice(num_valid, num_noisy_v, replace=False)
 
-    noise_train = rs.normal(mu, sigma, size=(num_noisy_t, x_train.shape[1]))
-    noise_valid = rs.normal(mu, sigma, size=(num_noisy_v, x_valid.shape[1]))
+    noise_train = rs.normal(mu, sigma, size=(num_noisy_t, x_train.shape[1])).astype(np.float32)
+    noise_valid = rs.normal(mu, sigma, size=(num_noisy_v, x_valid.shape[1])).astype(np.float32)
 
     x_train[noise_train_indices] += noise_train
     x_valid[noise_valid_indices] += noise_valid

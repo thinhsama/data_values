@@ -3,7 +3,7 @@ import torch
 from torch.utils.data import Dataset, Subset, DataLoader, random_split
 from typing import Optional, Tuple
 from datasets import download_iris
-
+from torch.utils.data import TensorDataset
 class SubsetDataset(Dataset):
     """
     Custom dataset wrapper to extract a subset of a given dataset.
@@ -50,32 +50,29 @@ class SubsetDataset(Dataset):
         """
         original_index = self.subset_indices[index].item()
         return self.dataset[original_index]
-
-
-if __name__ == "__main__":
-    # Example usage with synthetic data
-    from torchvision import datasets, transforms
-
-    # Download and load the MNIST dataset
-    #transform = transforms.ToTensor()
-    #full_dataset = datasets.MNIST(root='./data', train=True, download=True, transform=transform)
-    feature, target = download_iris()
-    feature = torch.tensor(feature, dtype=torch.float32)
-    target = torch.tensor(target, dtype=torch.long)
-    full_dataset = torch.utils.data.TensorDataset(feature, target)
-    print(full_dataset[0])
-    # Create a subset of the dataset
-    subset_size = 10
-    random_state = 42
+def create_subset_loader(feature:torch.Tensor, target:torch.Tensor, subset_size=1000, batch_size=32, random_state=42):
+    feature = torch.tensor(feature, dtype=torch.float32) if not isinstance(feature, torch.Tensor) else feature
+    target = torch.tensor(target, dtype=torch.long) if not isinstance(target, torch.Tensor) else target
+    full_dataset = TensorDataset(feature, target)
     subset_dataset = SubsetDataset(dataset=full_dataset, subset_size=subset_size, random_state=random_state)
+    return DataLoader(subset_dataset, batch_size=batch_size, shuffle=True)
 
-    # Wrap subset in a DataLoader
-    batch_size = 6
-    subset_loader = DataLoader(subset_dataset, batch_size=batch_size, shuffle=True)
-    # Print out some information
-    print(f"Full dataset size: {len(full_dataset)}")
-    print(f"Subset size: {len(subset_dataset)}")
-    # Iterate through the subset
-    for batch_idx, (data, labels) in enumerate(subset_loader):
-        print(f"Batch {batch_idx + 1}: Data shape: {data.shape}, Labels shape: {labels.shape}")
-        break  # Just one batch for demonstration
+# if __name__ == "__main__":
+#     feature, target = download_iris()
+#     subset_loader = create_subset_loader(feature, target, subset_size=20, batch_size=5, random_state=42)
+#     # print(full_dataset[0])
+#     # # Create a subset of the dataset
+#     # subset_size = 10
+#     # random_state = 42
+#     # subset_dataset = SubsetDataset(dataset=full_dataset, subset_size=subset_size, random_state=random_state)
+
+#     # # Wrap subset in a DataLoader
+#     # batch_size = 6
+#     # subset_loader = DataLoader(subset_dataset, batch_size=batch_size, shuffle=True)
+#     # Print out some information
+#     # print(f"Full dataset size: {len(full_dataset)}")
+#     # print(f"Subset size: {len(subset_dataset)}")
+#     # Iterate through the subset
+#     for batch_idx, (data, labels) in enumerate(subset_loader):
+#         print(f"Batch {batch_idx + 1}: Data shape: {data.shape}, Labels shape: {labels.shape}")
+#         break  # Just one batch for demonstration

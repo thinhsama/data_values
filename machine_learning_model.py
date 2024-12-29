@@ -8,7 +8,7 @@ from collections import OrderedDict
 from datasets import download_iris, split_data_train_val_test
 from sklearn.svm import SVC
 import torch
-
+import numpy as np
 # MLP Classifier
 class ClassifierMLP(nn.Module):
     def __init__(self, input_dim: int, num_classes: int, layers: int = 5, hidden_dim: int = 25, act_fn=None):
@@ -61,7 +61,7 @@ class ClassifierMLP(nn.Module):
 # Logistic Regression
 class LogisticRegression(nn.Module):
     def __init__(self, input_dim: int, num_classes: int):
-        super(LogisticRegression, self).__init__()
+        super().__init__()
         self.linear = nn.Linear(input_dim, num_classes)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
@@ -70,6 +70,10 @@ class LogisticRegression(nn.Module):
         return torch.softmax(self.linear(x), dim=-1)
 
     def fit(self, X_train: torch.Tensor, Y_train: torch.Tensor, lr=0.01, epochs=100, batch_size=32):
+        if isinstance(X_train, np.ndarray):
+            X_train = np.ascontiguousarray(X_train)
+        if isinstance(Y_train, np.ndarray):
+            Y_train = np.ascontiguousarray(Y_train)
         X_train = torch.tensor(X_train, dtype=torch.float32) if not isinstance(X_train, torch.Tensor) else X_train
         Y_train = torch.tensor(Y_train, dtype=torch.long) if not isinstance(Y_train, torch.Tensor) else Y_train
         criterion = nn.BCELoss() if self.linear.out_features == 1 else nn.CrossEntropyLoss()
@@ -97,7 +101,11 @@ class LogisticRegression(nn.Module):
         with torch.no_grad():
             outputs = self(X)
             return (outputs >= 0.5).int() if self.linear.out_features == 1 else outputs.argmax(dim=1)
-
+    def clone(self):
+        # Tạo bản sao của model bằng deepcopy
+        new_model = LogisticRegression(self.linear.in_features, self.linear.out_features)
+        new_model.load_state_dict(self.state_dict())  # Copy trọng số
+        return new_model
 
 # SVM
 

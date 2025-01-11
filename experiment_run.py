@@ -9,6 +9,15 @@ def data_experiment(shap_vals_lst, shap_vals_algo_lst, X_train, y_train, X_test,
                     model, metrics, plot_every_percentage,
                     add_data=False, low_value_first=True):
     
+        # Đảm bảo dữ liệu là PyTorch tensor
+    if not isinstance(X_train, torch.Tensor):
+        X_train = torch.tensor(X_train, dtype=torch.float32)
+    if not isinstance(y_train, torch.Tensor):
+        y_train = torch.tensor(y_train, dtype=torch.long)
+    if not isinstance(X_test, torch.Tensor):
+        X_test = torch.tensor(X_test, dtype=torch.float32)
+    if not isinstance(y_test, torch.Tensor):
+        y_test = torch.tensor(y_test, dtype=torch.long)
     frac_data = []
     sort_val_idxs_lst = []
 
@@ -59,7 +68,7 @@ def data_experiment(shap_vals_lst, shap_vals_algo_lst, X_train, y_train, X_test,
 # Run Multiple Experiments
 
 def run_experiments(shap_vals_lst, shap_vals_algo_lst, X_train, y_train, X_test, y_test, 
-                    model, metrics='acc'):
+                    model, metrics='acc', plot_every_percentage=0.001):
     
     experiment_configs = [
         (False, True, 'remove_low'),
@@ -73,7 +82,7 @@ def run_experiments(shap_vals_lst, shap_vals_algo_lst, X_train, y_train, X_test,
         print(f'Running {suffix} experiment...')
         result = data_experiment(
             shap_vals_lst, shap_vals_algo_lst, X_train, y_train, X_test, y_test,
-            model, metrics, plot_every_percentage=0.05,
+            model, metrics, plot_every_percentage=plot_every_percentage,
             add_data=add_data, low_value_first=low_value_first
         )
         all_results[suffix] = result

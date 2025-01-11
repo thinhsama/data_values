@@ -246,11 +246,11 @@ def evaluate_label_noise(data_values:np.ndarray, noise_indices: np.ndarray)->dic
     not_in_noisy = np.setdiff1d(sorted_value_list[noise_pred_ind], noise_indices)
     not_found_in_small = np.setdiff1d(noise_indices, sorted_value_list[noise_pred_ind])
     TP = len(found_in_noisy)
-    print("found_in_noisy:", found_in_noisy)    
+    #print("found_in_noisy:", found_in_noisy)    
     FP = len(not_in_noisy)
-    print("not in noisy but selected:", not_in_noisy)
+    #print("not in noisy but selected:", not_in_noisy)
     FN = len(not_found_in_small)
-    print("noisy but not (selected or found in noisy):", not_found_in_small)
+    #print("noisy but not (selected or found in noisy):", not_found_in_small)
     precision = TP / (TP + FP)
     recall = TP / (TP + FN)
     f1 = 2 * (precision * recall) / (precision + recall)
@@ -284,9 +284,9 @@ def evaluate_label_noise_20(model, X_train, y_train, X_valid, y_valid , data_val
     recall = TP / (TP + FN) if (TP + FN) > 0 else 0
     f1 = 2 * (precision * recall) / (precision + recall) if (precision + recall) > 0 else 0
     
-    print("Found in noisy (TP):", found_in_noisy)
-    print("Not in noisy but selected (FP):", not_in_noisy)
-    print("Noisy but not selected (FN):", not_found_in_small)
+    #print("Found in noisy (TP):", found_in_noisy)
+    #print("Not in noisy but selected (FP):", not_in_noisy)
+    #print("Noisy but not selected (FN):", not_found_in_small)
     
     return {
         "F1-model": F1_model,
@@ -301,9 +301,10 @@ from sklearn.linear_model import LogisticRegression
 from sklearn.metrics import accuracy_score
 from tqdm import tqdm
 
-def compute_WAD(model, X_train, y_train, X_test, y_test, importance_order):
+def compute_WAD(model, X_train, y_train, X_test, y_test, importance_order, num_steps=5):
     """
-    Tính toán WAD (Weighted Average Drop) để đánh giá thứ tự mức độ quan trọng của các điểm dữ liệu.
+    Tính toán WAD (Weighted Average Drop) để đánh giá thứ tự mức độ quan trọng của các điểm dữ liệu, 
+    với số lần xóa dữ liệu giới hạn.
     
     Args:
         model (LogisticRegression): Mô hình được huấn luyện.
@@ -312,6 +313,7 @@ def compute_WAD(model, X_train, y_train, X_test, y_test, importance_order):
         X_test (np.array): Dữ liệu kiểm thử.
         y_test (np.array): Nhãn kiểm thử.
         importance_order (list): Thứ tự mức độ quan trọng của các điểm dữ liệu.
+        num_steps (int): Số lần đánh giá (bước nhảy) khi xóa dữ liệu. Mặc định là 50.
     
     Returns:
         float: Giá trị WAD.
@@ -319,26 +321,29 @@ def compute_WAD(model, X_train, y_train, X_test, y_test, importance_order):
     n = len(importance_order)
     accuracy_drop = []
     model1 = model.clone()
+    
     # Tính độ chính xác ban đầu với toàn bộ tập dữ liệu
     model1.fit(X_train, y_train)
     initial_accuracy = accuracy_score(y_test, model1.predict(X_test))
 
-    # Lần lượt loại bỏ từng điểm theo thứ tự quan trọng
-    sorted_importance_order = np.argsort(importance_order)[::-1]
-    sorted_importance_order = sorted_importance_order.copy()
-    for j in tqdm(range(1, n+1)):
-        idx_to_keep = sorted_importance_order[j:] # Loại bỏ j điểm quan trọng đầu tiên
+    # Chọn các bước xóa cách đều nhau
+    sorted_importance_order = np.argsort(importance_order)[::-1]  # Sắp xếp thứ tự quan trọng
+    steps = np.linspace(0, n, num_steps, dtype=int)  # Chọn 50 bước cách đều
+
+    for step in tqdm(steps[1:], desc="Evaluating WAD"):  # Bỏ bước 0 vì không xóa điểm nào
+        idx_to_keep = sorted_importance_order[step:]  # Chỉ giữ lại các điểm sau `step`
         if len(idx_to_keep) == 0:
             break
         model1 = model.clone()
-        model1.fit(X_train[idx_to_keep], y_train[idx_to_keep], epochs = 100, lr = 0.1)
+        model1.fit(X_train[idx_to_keep], y_train[idx_to_keep], epochs=100, lr=0.1)
         new_accuracy = accuracy_score(y_test, model1.predict(X_test))
         drop = initial_accuracy - new_accuracy
         accuracy_drop.append(drop)
-    
+
     # Tính WAD theo công thức
-    wad = np.sum([1/j * np.sum(accuracy_drop[:j]) for j in range(1, n+1)])
+    wad = np.sum([1 / step * np.sum(accuracy_drop[:i]) for i, step in enumerate(steps[1:], start=1)])
     return wad
+
 
 # # Ví dụ
 # X_train = np.random.rand(100, 10)

@@ -7,8 +7,8 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from data_valuate import KNN_Shapley, DatasetDistance_geoloss, DatasetDistance_OT, KNNRegression, CKNN_Shapley
-from data_valuate import TMCSampler, ClassWiseShapley, BetaShapley
+from data_valuate import KNN_Shapley, DatasetDistance_geoloss, DatasetDistance_OT, KNNRegression, CKNN_Shapley, SAVA_OT, SAVA_OT_tanh, Hier_DatasetDistance_geoloss, Hier_DatasetDistance_OT  
+from data_valuate import TMCSampler, ClassWiseShapley, BetaShapley, Hier_SAVA_OT
 from visualize import plot_corrupted_sample_discovery
 from experiment_method import discover_corrupted_sample, evaluate_label_noise, compute_WAD, evaluate_label_noise_20
 # f1_score
@@ -88,6 +88,45 @@ class LavaEvaluator_geomloss(BaseEvaluator):
         dist_calculator = DatasetDistance_geoloss(x_train, y_train, x_valid, y_valid, device=self.device, lam_x=self.lam_x, lam_y=self.lam_y)
         u, _ = dist_calculator.dual_sol()
         return dist_calculator.compute_distance(u)
+class HierLavaEvaluator(BaseEvaluator):
+    """
+    Lava evaluator using Optimal Transport.
+    """
+    def __init__(self, lam_x: float = 1.0, lam_y: float = 1.0, **kwargs):
+        super().__init__(**kwargs)
+        self.lam_x = lam_x
+        self.lam_y = lam_y
+
+    def evaluate_data_values(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor) -> np.ndarray:
+        dist_calculator = Hier_DatasetDistance_OT(x_train, y_train, x_valid, y_valid, device=self.device, lam_x=self.lam_x, lam_y=self.lam_y)
+        u, _ = dist_calculator.dual_sol()
+        return dist_calculator.compute_distance(u)
+class HierLavaEvaluator(BaseEvaluator):
+    """
+    Lava evaluator using Optimal Transport.
+    """
+    def __init__(self, lam_x: float = 1.0, lam_y: float = 1.0, batch = 32, **kwargs):
+        super().__init__(**kwargs)
+        self.lam_x = lam_x
+        self.lam_y = lam_y
+        self.batch = batch
+    def evaluate_data_values(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor) -> np.ndarray:
+        dist_calculator = Hier_SAVA_OT(batch_size=self.batch)
+        dist = dist_calculator.evaluate_data_values(x_train, y_train, x_valid, y_valid, lam_x=self.lam_x, lam_y=self.lam_y)
+        return dist
+class LavaEvaluator_batch(BaseEvaluator):
+    """
+    Lava evaluator using Optimal Transport.
+    """
+    def __init__(self, lam_x: float = 1.0, lam_y: float = 1.0, batch = 32, **kwargs):
+        super().__init__(**kwargs)
+        self.lam_x = lam_x
+        self.lam_y = lam_y
+        self.batch = batch
+    def evaluate_data_values(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor) -> np.ndarray:
+        dist_calculator = SAVA_OT(batch_size=self.batch)
+        dist = dist_calculator.evaluate_data_values(x_train, y_train, x_valid, y_valid, lam_x=self.lam_x, lam_y=self.lam_y)
+        return dist
 class TMCEvaluator:
     def __init__(self, model = None, mc_epochs: int = 100, min_cardinality: int = 5, **kwargs):
         self.model = model
@@ -145,10 +184,11 @@ class ExperimentRunner:
         self.y_valid = y_valid
         self.x_test = x_valid
         self.y_test = y_valid
+        i = 0
         for evaluator in self.evaluators:
-            evaluator_name = self._get_evaluator_name(evaluator)
+            evaluator_name = self._get_evaluator_name(evaluator) + str(i)
             print(f"Running evaluator: {evaluator_name}")
-            
+            i+=1
             start_time = time.time()
             result = evaluator.evaluate_data_values(x_train, y_train, x_valid, y_valid, **kwargs)
             end_time = time.time()
@@ -200,21 +240,25 @@ class ExperimentRunner:
 
     def evaluate(self, noisy_train_indices: np.ndarray) -> Dict[str, Any]:
         evaluation_corrupt = {}
+        i = 0
         for evaluator in self.evaluators:
-            evaluator_name = self._get_evaluator_name(evaluator)
+            evaluator_name = self._get_evaluator_name(evaluator) + str(i)
+            i+=1
             values = self.results[evaluator_name]
             evaluation_corrupt[evaluator_name] = discover_corrupted_sample(values, noisy_train_indices)
             
-            print(f"{evaluator_name}: {evaluation_corrupt[evaluator_name]}")
+            #print(f"{evaluator_name}: {evaluation_corrupt[evaluator_name]}")
             plot_corrupted_sample_discovery(evaluation_corrupt[evaluator_name], evaluator_name=evaluator_name, noise_rate=0.2)
         
         return evaluation_corrupt
-    def calculate_WAD(self, model) -> Dict[str, Any]:
+    def calculate_WAD(self, model, num_steps) -> Dict[str, Any]:
         WAD = {}
+        i=0
         for evaluator in self.evaluators:
-            evaluator_name = self._get_evaluator_name(evaluator)
+            evaluator_name = self._get_evaluator_name(evaluator) + str(i)
+            i+=1
             values = self.results[evaluator_name]
-            WAD[evaluator_name] = compute_WAD(model, self.x_train, self.y_train, self.x_test, self.y_test, values)
+            WAD[evaluator_name] = compute_WAD(model, self.x_train, self.y_train, self.x_test, self.y_test, values, num_steps)
             print(f"{evaluator_name}: {WAD[evaluator_name]}")
         return WAD
     def calculate_label_noise(self, noisy_train_indices: np.ndarray) -> Dict[str, Any]:
@@ -227,8 +271,10 @@ class ExperimentRunner:
         return label_noise
     def calculate_label_noise_20(self, model, noisy_train_indices: np.ndarray, per:float=0.2) -> Dict[str, Any]:
         label_noise = {}
+        i = 0
         for evaluator in self.evaluators:
-            evaluator_name = self._get_evaluator_name(evaluator)
+            evaluator_name = self._get_evaluator_name(evaluator) + str(i)
+            i+=1
             values = self.results[evaluator_name]
             label_noise[evaluator_name] = evaluate_label_noise_20(model, self.x_train, self.y_train, self.x_test, self.y_test, values, noisy_train_indices, per)
             print(f"{evaluator_name}: {label_noise[evaluator_name]}")

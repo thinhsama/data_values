@@ -9,6 +9,8 @@ from datasets import download_iris, split_data_train_val_test
 from sklearn.svm import SVC
 import torch
 import numpy as np
+from sklearn.svm import SVC
+from sklearn.tree import DecisionTreeClassifier
 # MLP Classifier
 class ClassifierMLP(nn.Module):
     def __init__(self, input_dim: int, num_classes: int, layers: int = 5, hidden_dim: int = 25, act_fn=None):
@@ -46,8 +48,8 @@ class ClassifierMLP(nn.Module):
 
             loss.backward()
             optimizer.step()
-            if (epoch + 1) % 10 == 0:
-                print(f'Epoch [{epoch}/{epochs}], Loss: {loss.item():.4f}')
+            #if (epoch + 1) % 100 == 0:
+            #    print(f'Epoch [{epoch}/{epochs}], Loss: {loss.item():.4f}')
 
     def predict(self, X_valid):
         X_valid = torch.tensor(X_valid, dtype=torch.float32)
@@ -98,8 +100,8 @@ class LogisticRegression(nn.Module):
                 loss.backward()
                 optimizer.step()
                 epoch_loss += loss.item()
-            if (epoch + 1) % 10 == 0:
-                print(f"Epoch [{epoch + 1}/{epochs}], Loss: {epoch_loss / len(loader):.4f}")
+            #if (epoch + 1) % 10 == 0:
+            #    print(f"Epoch [{epoch + 1}/{epochs}], Loss: {epoch_loss / len(loader):.4f}")
 
     def predict(self, X: torch.Tensor) -> torch.Tensor:
         X = torch.tensor(X, dtype=torch.float32) if not isinstance(X, torch.Tensor) else X
@@ -112,65 +114,113 @@ class LogisticRegression(nn.Module):
         new_model = LogisticRegression(self.linear.in_features, self.linear.out_features)
         new_model.load_state_dict(self.state_dict())  # Copy trọng số
         return new_model
-
-# SVM
-
-class SVM:
-    def __init__(self, input_dim, num_classes, C=1.0, kernel='linear'):
-        """
-        SVM Classifier using scikit-learn's SVC.
-        
-        Args:
-            input_dim (int): Number of input features.
-            num_classes (int): Number of output classes.
-            C (float): Regularization parameter.
-            kernel (str): Kernel type ('linear', 'rbf', 'poly', etc.).
-        """
-        self.input_dim = input_dim
-        self.num_classes = num_classes
+# SVM Classifier (RBF Kernel)
+class SVM_RBF:
+    def __init__(self, C=1.0):
         self.C = C
-        self.kernel = kernel
-        self.model = SVC(C=self.C, kernel=self.kernel, probability=True)
+        self.model = SVC(C=self.C, kernel='rbf', probability=True)
 
     def fit(self, X_train, Y_train):
-        """
-        Train the SVM classifier on the given data.
-        
-        Args:
-            X_train (ndarray): Training features.
-            Y_train (ndarray): Training labels.
-        """
-        # Huấn luyện mô hình
-        print("Training SVM...")
+        print("Training SVM-RBF...")
         self.model.fit(X_train, Y_train)
-        print("SVM training completed.")
+        print("SVM-RBF training completed.")
 
     def predict(self, X_valid):
-        """
-        Predict the class labels for the given input data.
-        
-        Args:
-            X_valid (ndarray): Validation features.
-        
-        Returns:
-            Tensor: Predicted class labels.
-        """
-        # Dự đoán nhãn
         predictions = self.model.predict(X_valid)
         return torch.tensor(predictions)
 
     def predict_proba(self, X_valid):
-        """
-        Predict the probabilities for each class.
-        
-        Args:
-            X_valid (ndarray): Validation features.
-        
-        Returns:
-            Tensor: Predicted probabilities for each class.
-        """
         probabilities = self.model.predict_proba(X_valid)
         return torch.tensor(probabilities)
+
+    def clone(self):
+        # Tạo bản sao của model bằng deepcopy
+        new_model = SVM_RBF(self.C)
+        new_model.model = SVC(C=self.C, kernel='rbf', probability=True)
+        new_model.model.fit(self.model.support_vectors_, self.model.dual_coef_)
+        return new_model
+
+
+# Decision Tree Classifier
+class DecisionTree:
+    def __init__(self, max_depth=None):
+        self.max_depth = max_depth
+        self.model = DecisionTreeClassifier(max_depth=self.max_depth)
+
+    def fit(self, X_train, Y_train):
+        print("Training Decision Tree...")
+        self.model.fit(X_train, Y_train)
+        print("Decision Tree training completed.")
+
+    def predict(self, X_valid):
+        predictions = self.model.predict(X_valid)
+        return torch.tensor(predictions)
+
+    def clone(self):
+        # Tạo bản sao của model bằng deepcopy
+        new_model = DecisionTree(self.max_depth)
+        new_model.model = DecisionTreeClassifier(max_depth=self.max_depth)
+        new_model.model.fit(self.model.tree_.value, self.model.tree_.value.argmax(axis=2))
+        return new_model
+
+# SVM
+
+# class SVM:
+#     def __init__(self, input_dim, num_classes, C=1.0, kernel='linear'):
+#         """
+#         SVM Classifier using scikit-learn's SVC.
+        
+#         Args:
+#             input_dim (int): Number of input features.
+#             num_classes (int): Number of output classes.
+#             C (float): Regularization parameter.
+#             kernel (str): Kernel type ('linear', 'rbf', 'poly', etc.).
+#         """
+#         self.input_dim = input_dim
+#         self.num_classes = num_classes
+#         self.C = C
+#         self.kernel = kernel
+#         self.model = SVC(C=self.C, kernel=self.kernel, probability=True)
+
+#     def fit(self, X_train, Y_train):
+#         """
+#         Train the SVM classifier on the given data.
+        
+#         Args:
+#             X_train (ndarray): Training features.
+#             Y_train (ndarray): Training labels.
+#         """
+#         # Huấn luyện mô hình
+#         print("Training SVM...")
+#         self.model.fit(X_train, Y_train)
+#         print("SVM training completed.")
+
+#     def predict(self, X_valid):
+#         """
+#         Predict the class labels for the given input data.
+        
+#         Args:
+#             X_valid (ndarray): Validation features.
+        
+#         Returns:
+#             Tensor: Predicted class labels.
+#         """
+#         # Dự đoán nhãn
+#         predictions = self.model.predict(X_valid)
+#         return torch.tensor(predictions)
+
+#     def predict_proba(self, X_valid):
+#         """
+#         Predict the probabilities for each class.
+        
+#         Args:
+#             X_valid (ndarray): Validation features.
+        
+#         Returns:
+#             Tensor: Predicted probabilities for each class.
+#         """
+#         probabilities = self.model.predict_proba(X_valid)
+#         return torch.tensor(probabilities)
 
 
 # if __name__ == "__main__":

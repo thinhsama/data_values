@@ -165,62 +165,62 @@ class DecisionTree:
 
 # SVM
 
-# class SVM:
-#     def __init__(self, input_dim, num_classes, C=1.0, kernel='linear'):
-#         """
-#         SVM Classifier using scikit-learn's SVC.
+class SVM:
+    def __init__(self, input_dim, num_classes, C=1.0, kernel='linear'):
+        """
+        SVM Classifier using scikit-learn's SVC.
         
-#         Args:
-#             input_dim (int): Number of input features.
-#             num_classes (int): Number of output classes.
-#             C (float): Regularization parameter.
-#             kernel (str): Kernel type ('linear', 'rbf', 'poly', etc.).
-#         """
-#         self.input_dim = input_dim
-#         self.num_classes = num_classes
-#         self.C = C
-#         self.kernel = kernel
-#         self.model = SVC(C=self.C, kernel=self.kernel, probability=True)
+        Args:
+            input_dim (int): Number of input features.
+            num_classes (int): Number of output classes.
+            C (float): Regularization parameter.
+            kernel (str): Kernel type ('linear', 'rbf', 'poly', etc.).
+        """
+        self.input_dim = input_dim
+        self.num_classes = num_classes
+        self.C = C
+        self.kernel = kernel
+        self.model = SVC(C=self.C, kernel=self.kernel, probability=True)
 
-#     def fit(self, X_train, Y_train):
-#         """
-#         Train the SVM classifier on the given data.
+    def fit(self, X_train, Y_train):
+        """
+        Train the SVM classifier on the given data.
         
-#         Args:
-#             X_train (ndarray): Training features.
-#             Y_train (ndarray): Training labels.
-#         """
-#         # Huấn luyện mô hình
-#         print("Training SVM...")
-#         self.model.fit(X_train, Y_train)
-#         print("SVM training completed.")
+        Args:
+            X_train (ndarray): Training features.
+            Y_train (ndarray): Training labels.
+        """
+        # Huấn luyện mô hình
+        print("Training SVM...")
+        self.model.fit(X_train, Y_train)
+        print("SVM training completed.")
 
-#     def predict(self, X_valid):
-#         """
-#         Predict the class labels for the given input data.
+    def predict(self, X_valid):
+        """
+        Predict the class labels for the given input data.
         
-#         Args:
-#             X_valid (ndarray): Validation features.
+        Args:
+            X_valid (ndarray): Validation features.
         
-#         Returns:
-#             Tensor: Predicted class labels.
-#         """
-#         # Dự đoán nhãn
-#         predictions = self.model.predict(X_valid)
-#         return torch.tensor(predictions)
+        Returns:
+            Tensor: Predicted class labels.
+        """
+        # Dự đoán nhãn
+        predictions = self.model.predict(X_valid)
+        return torch.tensor(predictions)
 
-#     def predict_proba(self, X_valid):
-#         """
-#         Predict the probabilities for each class.
+    def predict_proba(self, X_valid):
+        """
+        Predict the probabilities for each class.
         
-#         Args:
-#             X_valid (ndarray): Validation features.
+        Args:
+            X_valid (ndarray): Validation features.
         
-#         Returns:
-#             Tensor: Predicted probabilities for each class.
-#         """
-#         probabilities = self.model.predict_proba(X_valid)
-#         return torch.tensor(probabilities)
+        Returns:
+            Tensor: Predicted probabilities for each class.
+        """
+        probabilities = self.model.predict_proba(X_valid)
+        return torch.tensor(probabilities)
 
 
 # if __name__ == "__main__":

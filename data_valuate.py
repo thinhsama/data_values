@@ -14,7 +14,93 @@ from scipy.special import comb
 # f1_score
 from sklearn.metrics import f1_score
 from machine_learning_model import ClassifierMLP, LogisticRegression
+def tnn_shapley_single(x_train_few, y_train_few, x_test, y_test, tau=0, K0=10, dis_metric='cosine'):
 
+  N = len(y_train_few)
+  sv = np.zeros(N)
+
+  C = max(y_train_few)+1
+  if dis_metric == 'cosine':
+    if x_test.ndim == 1:
+        x_test = x_test.reshape(1, -1)
+    dot_product = np.dot(x_train_few, x_test.T)  # Chú ý phải chuyển vị x_val_batch
+
+    # Tính norm của x_train_batch và x_val_batch
+    norm_train = np.linalg.norm(x_train_few, axis=1, keepdims=True)
+    norm_val = np.linalg.norm(x_test, axis=1, keepdims=True)
+
+    # Tính cosine similarity
+    cosine_similarity = dot_product / (norm_train * norm_val.T + 1e-8)
+
+    # Đảo ngược cosine similarity để thành cosine distance (1 - similarity)
+    distance = 1 - cosine_similarity
+    #distance = -np.dot(x_train_few, x_test) / np.linalg.norm( x_train_few, axis=1 )
+  else:
+    distance = np.array([np.linalg.norm(x - x_test) for x in x_train_few])
+  Itau = (distance < tau).nonzero()[0]
+
+  Ct = len(Itau)
+  Ca = ( y_train_few[Itau] == y_test ).sum().item()
+
+  reusable_sum = 0
+  stable_ratio = 1
+  for j in range(N):
+    stable_ratio *= (N-j-Ct) / (N-j)
+    reusable_sum += (1/(j+1)) * (1 - stable_ratio)
+    # reusable_sum += (1/(j+1)) * (1 - comb(N-1-j, Ct) / comb(N, Ct))
+
+  for i in Itau:
+    sv[i] = ( int(y_test==y_train_few[i]) - 1/C ) / Ct
+    if Ct >= 2:
+      ca = Ca - int(y_test==y_train_few[i])
+      sv[i] += ( int(y_test==y_train_few[i])/Ct - ca/(Ct*(Ct-1)) ) * ( reusable_sum - 1 )
+
+  return sv
+
+def tnn_shapley(x_train_few, y_train_few, x_val_few, y_val_few, tau=0, K0=10, dis_metric='cosine'):
+  
+  N = len(y_train_few)
+  sv = np.zeros(N)
+  n_test = len(y_val_few)
+  x_train_view, x_valid_view = x_train_few.view(N, -1), x_val_few.view(n_test, -1)
+  print('tau in tnn shapley', tau)
+  for i in tqdm.tqdm(range(n_test)):
+    x_test, y_test = x_valid_view[i], y_val_few[i]
+    sv += tnn_shapley_single(x_train_view, y_train_few, x_test, y_test, tau, K0, dis_metric=dis_metric)
+
+  return sv
+class TKNN_Shapley():
+    def __init__(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor, k_neighbors: int=10, T:int = 0, default: bool = 1, batch_size: int = 32, embedding_model=None, random_state: int=42):
+        self.x_train = torch.tensor(x_train, dtype=torch.float32) if not isinstance(x_train, torch.Tensor) else x_train
+        self.y_train = torch.tensor(y_train, dtype=torch.long) if not isinstance(y_train, torch.Tensor) else y_train
+        self.x_valid = torch.tensor(x_valid, dtype=torch.float32) if not isinstance(x_valid, torch.Tensor) else x_valid
+        self.y_valid = torch.tensor(y_valid, dtype=torch.long) if not isinstance(y_valid, torch.Tensor) else y_valid
+        self.k_neighbors = k_neighbors
+        self.batch_size = batch_size
+        self.embedding_model = embedding_model
+        self.random_state = check_random_state(random_state)
+        self.T = T  # T = N-2K
+        self.default = default
+
+    def train_data_values(self):
+        # Preprocess data if embedding model exists
+        if self.embedding_model is not None:
+            self.x_train, self.x_valid = self.embedding_model(self.x_train, self.x_valid)
+        # Compute Shapley values using the tnn_shapley algorithm
+        self.data_values = tnn_shapley(
+            x_train_few=self.x_train,
+            y_train_few=self.y_train,
+            x_val_few=self.x_valid,
+            y_val_few=self.y_valid,
+            tau=self.T,  # or another threshold if needed
+            K0=self.k_neighbors,
+            dis_metric='cosine'
+        )
+
+        return self
+
+    def evaluate_data_values(self) -> np.ndarray:
+        return self.data_values
 class CKNN_Shapley():
   def __init__(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor, k_neighbors: int=10, T:int = 0, default: bool = 1, batch_size: int = 32, embedding_model = None, random_state: int=42):
     self.x_train = torch.tensor(x_train, dtype=torch.float32) if not isinstance(x_train, torch.Tensor) else x_train
@@ -51,8 +137,6 @@ class CKNN_Shapley():
     dist = torch.cat(dist_list, dim=0)
     #print(dist.shape)
     sort_indices = torch.argsort(dist, dim=0, stable=True)
-    #print(sort_indices.shape)
-    #print(sort_indices)
     y_train_sort = self.y_train[sort_indices]
     score = torch.zeros_like(dist)
     for i in tqdm.tqdm(range(n-1, n-self.T-1, -1)):
@@ -66,7 +150,7 @@ class CKNN_Shapley():
     return self.data_values
 
 class KNN_Shapley():
-  def __init__(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor, k_neighbors: int=10, batch_size: int = 32, embedding_model = None, random_state: int=42):
+  def __init__(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor, k_neighbors: int=10, batch_size: int = 32, metric = 'cosine', embedding_model = None, random_state: int=42):
      # Đảm bảo dữ liệu là tensor PyTorch
     self.x_train = torch.tensor(x_train, dtype=torch.float32) if not isinstance(x_train, torch.Tensor) else x_train
     self.y_train = torch.tensor(y_train, dtype=torch.long) if not isinstance(y_train, torch.Tensor) else y_train
@@ -76,6 +160,7 @@ class KNN_Shapley():
     self.batch_size = batch_size
     self.embedding_model = embedding_model
     self.random_state = check_random_state(random_state)
+    self.metric = metric
   def match(self, y: torch.Tensor) -> torch.Tensor:
     return (y == self.y_valid).float()
   def train_data_values(self):
@@ -89,7 +174,20 @@ class KNN_Shapley():
     for x_train_batch in DataLoader(x_train_view, batch_size=self.batch_size, shuffle=False):
       dist_row = []
       for x_val_batch in DataLoader(x_valid_view, batch_size=self.batch_size, shuffle=False):
-        dist_batch = torch.cdist(x_train_batch, x_val_batch)
+        if self.metric == 'cosine':
+            dot_product = torch.mm(x_train_batch, x_val_batch.T)  # Chú ý phải chuyển vị x_val_batch
+
+            # Tính norm của x_train_batch và x_val_batch
+            norm_train = torch.norm(x_train_batch, dim=1, keepdim=True)
+            norm_val = torch.norm(x_val_batch, dim=1, keepdim=True)
+
+            # Tính cosine similarity
+            cosine_similarity = dot_product / (norm_train * norm_val.T + 1e-8)
+
+            # Đảo ngược cosine similarity để thành cosine distance (1 - similarity)
+            dist_batch = 1 - cosine_similarity
+        else:
+            dist_batch = torch.cdist(x_train_batch, x_val_batch)
         dist_row.append(dist_batch)
       dist_list.append(torch.cat(dist_row, dim=1))
     dist = torch.cat(dist_list, dim=0)
@@ -206,21 +304,6 @@ class KNNRegression:
         return self
     def evaluate_data_values(self)->np.ndarray:
         return - self.data_values
-class KNNEvaluator():
-  def __init__(self, k_neighbors: int=10, batch_size: int = 32, embedding_model = None, random_state: int=42):
-    self.k_neighbors = k_neighbors
-    self.batch_size = batch_size
-    self.embedding_model = embedding_model
-    self.random_state = check_random_state(random_state)
-  def evaluate_data_values(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor) -> np.ndarray:
-    dist_calculator = KNN_Shapley(x_train, y_train, x_valid, y_valid, k_neighbors=self.k_neighbors, batch_size=self.batch_size, embedding_model=self.embedding_model, random_state=self.random_state)
-    dist_calculator = dist_calculator.train_data_values()
-    #print('dist_calculator:', dist_calculator)
-    return dist_calculator.evaluate_data_values()
-
-
-
-
 
 # Định nghĩa cost routines cho GeomLoss
 cost_routines = {
@@ -248,6 +331,7 @@ class DatasetDistance_geoloss:
         inner_ot_entreg: float = 0.1,
         device: torch.device = torch.device("cpu"),
         ot_method: str = 'balance_ot_sinkhorn',
+        label_distances: torch.Tensor = None,
     ):
         self.feature_cost = feature_cost
         self.inner_ot_loss = inner_ot_loss
@@ -259,7 +343,7 @@ class DatasetDistance_geoloss:
         self.inner_ot_entreg = inner_ot_entreg
         self.inner_ot_debiased = inner_ot_debiased
         self.device = device
-        self.label_distances = None
+        self.label_distances = label_distances
 
         # Load datasets
         self.x_train = torch.tensor(x_train, dtype=torch.float32) if not isinstance(x_train, torch.Tensor) else x_train
@@ -382,14 +466,9 @@ def pwdist_exact(
         b = torch.ones(len(m2), device=device) / len(m2)
         D[i, j] = distance(a, m1, b, m2).item()
         if c1[i] == c2[j]:
-            sigma = 0.1 
-            #D[i, j] = torch.exp(-D[i, j]**2 / (2 * sigma**2))
-            #D[i, j] = D[i, j] * 0.1
-            #print(c1[i], c2[j], D[i, j])
             D[i, j] = D[i, j] * 1
         else:
             D[i, j] = D[i, j] * 1
-        #print('gia tri i,j:',i,j,m1.shape, m2.shape, D[i, j])
         if symmetric:
             D[j, i] = D[i, j]
 
@@ -416,15 +495,7 @@ def batch_augmented_cost(
     else:
         raise ValueError("Must provide label distances or other precomputed metrics")
     return lam_x * C1 + lam_y * (C2 / p)
-# complute LAVA
-# LAVA IMPLEMENT - OPTIMAL TRANSPORT
-# import ot
-# import numpy as np
-# import torch
-# import tqdm
-# from torch.utils.data import DataLoader
-# from typing import Callable, Literal, Optional, Union
-# import itertools  # Thiếu import
+
 
 cost_routines_ot = {
     1: lambda x, y: ot.dist(x.cpu().numpy(), y.cpu().numpy()),  # Sử dụng hàm ot.dist để tính khoảng cách
@@ -449,7 +520,9 @@ class DatasetDistance_OT:
         inner_ot_entreg: float = 0.1,
         device: torch.device = torch.device("cpu"),
         ot_method: str = 'balance_ot_sinkhorn',
+        label_distances: torch.Tensor = None,
     ):
+        self.label_distances = label_distances
         self.feature_cost = feature_cost
         self.inner_ot_loss = inner_ot_loss
         self.inner_ot_debiased = inner_ot_debiased
@@ -463,13 +536,12 @@ class DatasetDistance_OT:
         self.entreg = entreg
         [*self.covar_dim] = x_train[0].shape
         [*self.label_dim] = (1,) if y_valid.ndim == 1 else y_valid.shape[1:]
-        self.label_distances = None
         self.x_train = torch.tensor(x_train, dtype=torch.float32) if not isinstance(x_train, torch.Tensor) else x_train
         self.y_train = torch.tensor(y_train, dtype=torch.long) if not isinstance(y_train, torch.Tensor) else y_train
         self.x_valid = torch.tensor(x_valid, dtype=torch.float32) if not isinstance(x_valid, torch.Tensor) else x_valid
         self.y_valid = torch.tensor(y_valid, dtype=torch.long) if not isinstance(y_valid, torch.Tensor) else y_valid
 
-    def _get_label_distance(self) -> torch.Tensor:
+    def _get_label_distances(self) -> torch.Tensor:
         if self.label_distances is not None:
             return self.label_distances
         pwdist = self._pwdist_exact
@@ -529,23 +601,17 @@ class DatasetDistance_OT:
             #print(f"unif label{i} , unif label:{j}, a{a}, b{b}")
             if self.ot_method == 'balance_ot_sinkhorn':
               D[i, j] = torch.tensor(ot.sinkhorn2(a, b, cost_matrix, entreg,  numItermax=1000), device=device)  # Sinkhorn với entropy regularization
-              #print('thang thu i,j:', i, j, D[i, j])
-            #if ot_method == 'balance_ot_sinkhorn':
             if self.ot_method == 'unbalance_ot_sinkhorn':
               #D[i, j] = torch.tensor(ot.unbalanced.sinkhorn_unbalanced(a, b, cost_matrix, entreg, reg_m=0.05), device=device)  # Sinkhorn với entropy regularization
               D[i, j] = torch.tensor(ot.sinkhorn2(a, b, cost_matrix, entreg), device=device)  # Sinkhorn với entropy regularization
             if self.ot_method == 'partial':
               D[i, j] = torch.tensor(ot.partial.partial_wasserstein(a, b, cost_matrix, entreg, m=0.7), device=device)
-            #if ot_method == 'unbalance_ot_sinkhorn_KL':
-            #if ot_method == 'unbalance_ot_sinkhorn_L2':
-            #balance_tmp2 = ot.bregman.sinkhorn_knopp(a, b, M, reg = 0.1, verbose =True, log=True)
-            #################################################
             if symetric:
                 D[j, i] = D[i, j]
         return D
 
     def dual_sol(self) -> tuple[float, torch.Tensor]:
-        wassetein = self._get_label_distance().to(self.device)
+        wassetein = self._get_label_distances().to(self.device)
         def zscore_to_unit_interval(tensor):
           # Tính Z-score
           mean = tensor.mean()
@@ -591,20 +657,6 @@ class DatasetDistance_OT:
                 C2 = W.flatten()[M.flatten()].reshape(Y1.shape[0], Y2.shape[0])
             if isinstance(C1, np.ndarray):
               C1 = torch.tensor(C1)
-             # Tính min và max tương ứng cho từng cặp
-            # Tìm giá trị min và max toàn cục
-            # global_min = min(C1.min(), C2.min())
-            # global_max = max(C1.max(), C2.max())
-    
-            # # Chuẩn hóa C1 và C2
-            # C1_norm = (C1 - global_min) / (global_max - global_min + 1e-8)
-            # C2_norm = (C2 - global_min) / (global_max - global_min + 1e-8)
-            # # Đảm bảo nằm trong khoảng (0, 1] bằng cách thêm epsilon nhỏ
-            # C1_norm = torch.clamp(C1_norm + 1e-8, 0, 1)
-            # C2_norm = torch.clamp(C2_norm + 1e-8, 0, 1)
-            #C2 = C2 / C2.max()
-            #print('C1 la:', C1)
-            #print('C2 la:', C2)
             C1 = zscore_to_unit_interval(C1)
             C2 = zscore_to_unit_interval(C2)
             #print('C1 la:', C1)
@@ -641,15 +693,13 @@ class DatasetDistance_OT:
           v = log['logv']
         return u, v
     def compute_distance(self, pi) -> np.ndarray:
-      # return data values for each traning data point
-      # get the clibrated gradient of dual solution = data values
-      f1k = pi.squeeze()
-      num_points = len(f1k) -1
-      train_gradients = f1k*(1+1/(num_points)) - f1k.sum()/num_points
-      train_gradients = -1*train_gradients
-      return train_gradients.numpy(force = True)
-
-
+        # return data values for each traning data point
+        # get the clibrated gradient of dual solution = data values
+        f1k = pi.squeeze()
+        num_points = len(f1k) -1
+        train_gradients = f1k
+        train_gradients = -1*train_gradients
+        return train_gradients.numpy(force = True)
 
 
 class Hier_DatasetDistance_OT:
@@ -691,7 +741,7 @@ class Hier_DatasetDistance_OT:
         self.x_valid = torch.tensor(x_valid, dtype=torch.float32) if not isinstance(x_valid, torch.Tensor) else x_valid
         self.y_valid = torch.tensor(y_valid, dtype=torch.long) if not isinstance(y_valid, torch.Tensor) else y_valid
 
-    def _get_label_distance(self) -> torch.Tensor:
+    def _get_label_distances(self) -> torch.Tensor:
         if self.label_distances is not None:
             return self.label_distances
         pwdist = self._pwdist_exact
@@ -745,9 +795,6 @@ class Hier_DatasetDistance_OT:
             #print('cost_matrix:', cost_matrix)
             
             cost_matrix = (cost_matrix) / (cost_matrix.max())
-            # mean = cost_matrix.mean()
-            # std = cost_matrix.std()
-            # cost_matrix = (cost_matrix - mean) / (std + 1e-6)
             a, b = ot.unif(len(m1)), ot.unif(len(m2))  # phân phối đều
             #print(f"unif label{i} , unif label:{j}, a{a}, b{b}")
             if self.ot_method == 'balance_ot_sinkhorn':
@@ -759,16 +806,12 @@ class Hier_DatasetDistance_OT:
               D[i, j] = torch.tensor(ot.sinkhorn2(a, b, cost_matrix, entreg), device=device)  # Sinkhorn với entropy regularization
             if self.ot_method == 'partial':
               D[i, j] = torch.tensor(ot.partial.partial_wasserstein(a, b, cost_matrix, entreg, m=0.7), device=device)
-            #if ot_method == 'unbalance_ot_sinkhorn_KL':
-            #if ot_method == 'unbalance_ot_sinkhorn_L2':
-            #balance_tmp2 = ot.bregman.sinkhorn_knopp(a, b, M, reg = 0.1, verbose =True, log=True)
-            #################################################
             if symetric:
                 D[j, i] = D[i, j]
         return D
 
     def dual_sol(self) -> tuple[float, torch.Tensor]:
-        wassetein = self._get_label_distance().to(self.device)
+        wassetein = self._get_label_distances().to(self.device)
         def zscore_to_unit_interval(tensor):
           # Tính Z-score
           mean = tensor.mean()
@@ -797,51 +840,12 @@ class Hier_DatasetDistance_OT:
     
           return scaled
         def cost_ot(Z1, Z2, W, lam_x, lam_y, feature_cost, p):
-            #if Z1.ndim == 2:
-            #    Z1 = Z1.unsqueeze(dim=0)
-            #if Z2.ndim == 2:
-            #    Z2 = Z2.unsqueeze(dim=0)
-            #print(Z1.shape)
-            #print(Z2.shape)
             Y1 = Z1[:, -1].long()
             Y2 = Z2[:, -1].long()
             Z1_ot = Z1.unsqueeze(0) # (1, n1, d+1)
             Z2_ot = Z2.unsqueeze(0) # (1, n1, d+1)
             num_classes_Y1 = len(np.unique(Y1.cpu().numpy()))
             num_classes_Y2 = len(np.unique(Y2.cpu().numpy()))
-            # print('num_classes_Y1:', num_classes_Y1)
-            # print('num_classes_Y2:', num_classes_Y2)
-            # if feature_cost == 'euclidean':
-            #     C1 = cost_routines_ot[p](Z1[:, :-1], Z2[:, :-1])
-            # else:
-            #     C1 = feature_cost(Z1[:, :-1], Z2[:, :-1])
-            # if W is not None:
-            #     M = W.shape[1] * (Y1[:, None]) + Y2[None, :]
-            #     C2 = W.flatten()[M.flatten()].reshape(Y1.shape[0], Y2.shape[0])
-            # if isinstance(C1, np.ndarray):
-            #   C1 = torch.tensor(C1)
-            #  # Tính min và max tương ứng cho từng cặp
-            # # Tìm giá trị min và max toàn cục
-            # # global_min = min(C1.min(), C2.min())
-            # # global_max = max(C1.max(), C2.max())
-    
-            # # # Chuẩn hóa C1 và C2
-            # # C1_norm = (C1 - global_min) / (global_max - global_min + 1e-8)
-            # # C2_norm = (C2 - global_min) / (global_max - global_min + 1e-8)
-            # # # Đảm bảo nằm trong khoảng (0, 1] bằng cách thêm epsilon nhỏ
-            # # C1_norm = torch.clamp(C1_norm + 1e-8, 0, 1)
-            # # C2_norm = torch.clamp(C2_norm + 1e-8, 0, 1)
-            # #C2 = C2 / C2.max()
-            # print('C1 la:', C1)
-            # print('C2 la:', C2)
-            # C1 = zscore_to_unit_interval(C1)
-            # C2 = zscore_to_unit_interval(C2)
-            # print('C1 la:', C1)
-            # print('C2 la:', C2)
-    
-
-            # # Tổng hợp chi phí
-            # D = C1 * lam_x + (C2 / p) * lam_y
             D = batch_augmented_cost(Z1_ot, Z2_ot, W=W, lam_x = lam_x, lam_y = lam_y)
             D = D.squeeze(0)
             return D
@@ -945,9 +949,6 @@ class HierDatasetDistance_geoloss:
         DYY1 = pwdist(self.x_train, self.y_train)
         DYY2 = pwdist(self.x_valid, self.y_valid)
         DYY12 = pwdist(self.x_train, self.y_train, self.x_valid, self.y_valid)
-
-        #D = torch.cat([torch.cat([DYY1, DYY12], 1), torch.cat([DYY12.t(), DYY2], 1)])
-        # thay ham D
         D = torch.cat([torch.cat([DYY12, DYY1], 1), torch.cat([DYY12.t(), DYY2], 1)])
         #print(D.shape) 2*class
         self.label_distances = D
@@ -1090,11 +1091,6 @@ class Hier_SAVA_OT:
 
 
 
-
-
-
-
-
 class SAVA_OT:
     def __init__(self, random_state=0, batch_size=100, device=torch.device("cpu")):
         self.random_state = random_state
@@ -1135,7 +1131,61 @@ class SAVA_OT:
                 # Move data to the specified device
                 x_valid_batch = x_valid_batch.to(self.device)
                 y_valid_batch = y_valid_batch.to(self.device)
-                dist_calculator = DatasetDistance_OT(x_train_batch, y_train_batch, x_valid_batch, y_valid_batch, device=self.device, ot_method='balance_ot_sinkhorn')
+                dist_calculator = DatasetDistance_geoloss(x_train_batch, y_train_batch, x_valid_batch, y_valid_batch, device=self.device, ot_method='balance_ot_sinkhorn')
+                u = dist_calculator.dual_sol()
+                # dist dua tren calibrate gradient
+                dist = dist_calculator.compute_distance(u[0])
+                values_tmp += dist 
+            values.append(values_tmp/len(self.valid_loader))
+        values = np.concatenate(values)
+        return values
+
+
+
+
+class SAVA_OT_savel2l:
+    def __init__(self, random_state=0, batch_size=100, device=torch.device("cpu")):
+        self.random_state = random_state
+        self.device = device
+        torch.manual_seed(random_state)
+        self.batch_size = batch_size
+    def create_dataloaders(self, x_train, y_train, x_valid, y_valid):
+        """
+        Create DataLoaders for train and validation datasets.
+        """
+        # Convert inputs to tensors if they are not already
+        x_train = torch.tensor(x_train, dtype=torch.float32) if not isinstance(x_train, torch.Tensor) else x_train
+        y_train = torch.tensor(y_train, dtype=torch.long) if not isinstance(y_train, torch.Tensor) else y_train
+        x_valid = torch.tensor(x_valid, dtype=torch.float32) if not isinstance(x_valid, torch.Tensor) else x_valid
+        y_valid = torch.tensor(y_valid, dtype=torch.long) if not isinstance(y_valid, torch.Tensor) else y_valid
+
+        # Create TensorDatasets
+        train_dataset = TensorDataset(x_train, y_train)
+        valid_dataset = TensorDataset(x_valid, y_valid)
+
+        # Create DataLoaders
+        self.train_loader = DataLoader(train_dataset, batch_size=self.batch_size, shuffle=False)
+        self.valid_loader = DataLoader(valid_dataset, batch_size=self.batch_size, shuffle=False)
+    def evaluate_data_values(self, x_train, y_train, x_valid, y_valid, lam_x=1.0, lam_y=1.0):
+        # Train model and evaluate data values based on OT
+        """
+        Train model and evaluate data values based on OT.
+        """
+        # Create DataLoaders
+        self.create_dataloaders(x_train, y_train, x_valid, y_valid)
+        dist_calculator = DatasetDistance_geoloss(x_train, y_train, x_valid, y_valid, device=self.device, ot_method='balance_ot_sinkhorn')
+        label_distances = dist_calculator._get_label_distances()
+        values = []
+        for i, (x_train_batch, y_train_batch) in enumerate(tqdm.tqdm(self.train_loader, desc='batch LAVA')):
+            # Move data to the specified device
+            x_train_batch = x_train_batch.to(self.device)
+            y_train_batch = y_train_batch.to(self.device)
+            values_tmp = np.zeros(x_train_batch.shape[0])
+            for j, (x_valid_batch, y_valid_batch) in enumerate(tqdm.tqdm(self.valid_loader, desc = 'batch LAVA')):
+                # Move data to the specified device
+                x_valid_batch = x_valid_batch.to(self.device)
+                y_valid_batch = y_valid_batch.to(self.device)
+                dist_calculator = DatasetDistance_geoloss(x_train_batch, y_train_batch, x_valid_batch, y_valid_batch, label_distances=label_distances ,device=self.device, ot_method='balance_ot_sinkhorn')
                 u = dist_calculator.dual_sol()
                 # dist dua tren calibrate gradient
                 dist = dist_calculator.compute_distance(u[0])
@@ -1196,34 +1246,6 @@ class SAVA_OT_tanh:
         values = np.concatenate(values)
         return values
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# class LavaEvaluator:
-#     def __init__(self, random_state=0, device=torch.device("cpu")):
-#         self.random_state = random_state
-#         self.device = device
-#         torch.manual_seed(random_state)
-
-#     def evaluate_data_values(self, x_train, y_train, x_valid, y_valid, lam_x=1.0, lam_y=1.0):
-#         # Train model and evaluate data values based on OT
-#         #dist_calculator = DatasetDistance(x_train, y_train, x_valid, y_valid, device=self.device, ot_method='unbalance_ot_sinkhorn')
-#         dist_calculator = DatasetDistance(x_train, y_train, x_valid, y_valid, device=self.device, lam_x = lam_x, lam_y=lam_y)
-#         u = dist_calculator.dual_sol()
-#         dist = dist_calculator.compute_distance(u[0])
-        # return dist
-    
 class TMCSampler:
     def __init__(self, mc_epochs: int = 100, min_cardinality: int = 5, random_state: int = 42):
         self.mc_epochs = mc_epochs

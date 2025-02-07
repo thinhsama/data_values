@@ -4,12 +4,12 @@ import torch
 from sklearn.metrics import f1_score
 from sklearn.utils import check_random_state
 from typing import Dict, List
-
-# Helper functions and models
+import machine_learning_model
 from machine_learning_model import ClassifierMLP, LogisticRegression
 from visualize import plot_performance, plot_corrupted_sample_discovery
 from sklearn.metrics import accuracy_score, f1_score, auc, roc_auc_score
 from tqdm import tqdm
+import inspect
 def noisy_detection(data_values: np.ndarray, noise_train_indices: np.ndarray) -> Dict[str, float]:
     """
     Evaluate the ability to identify noisy indices using F1 score.
@@ -29,7 +29,9 @@ def noisy_detection(data_values: np.ndarray, noise_train_indices: np.ndarray) ->
 def get_model(model_name, input_dim, num_classes):
     """Utility function to return model based on the model_name."""
     if model_name == 'LogisticRegression':
-        return LogisticRegression(input_dim=input_dim, num_classes=num_classes)
+        print(inspect.signature(LogisticRegression.__init__))
+        model = LogisticRegression(input_dim = input_dim, num_classes = num_classes)
+        return model
     elif model_name == 'MLP':
         return ClassifierMLP(input_dim=input_dim, num_classes=num_classes)
     else:
@@ -56,7 +58,7 @@ def remove_high_low(data_values: np.ndarray, x_train: np.ndarray, y_train: np.nd
     for bin_index in range(0, num_points, num_period):
         # Valuable model: Keep most valuable
         most_values_idx = sorted_value_list[bin_index:]
-        valuable_model = get_model(model_name, input_dim, num_classes)
+        valuable_model = get_model(model_name = model_name, input_dim = input_dim, num_classes = num_classes)
         valuable_model.fit(torch.tensor(x_train[most_values_idx], dtype=torch.float32),
                            torch.tensor(y_train[most_values_idx], dtype=torch.long), epochs=epochs)
         y_pred = valuable_model.predict(torch.tensor(x_valid, dtype=torch.float32))
@@ -231,8 +233,6 @@ def performance_remove_noise(data_values: np.ndarray, noisy_train_indices: np.nd
     }
 
     return f1_scores
-from sklearn.metrics import precision_score, recall_score, f1_score
-import numpy as np
 def evaluate_label_noise(data_values:np.ndarray, noise_indices: np.ndarray)->dict[str, float]:
     #Indices with Values < 0
     #Found in Noisy Train Indices (TP)
@@ -295,11 +295,6 @@ def evaluate_label_noise_20(model, X_train, y_train, X_valid, y_valid , data_val
         "F1-Score": f1
     }
 
-import torch
-import numpy as np
-from sklearn.linear_model import LogisticRegression
-from sklearn.metrics import accuracy_score
-from tqdm import tqdm
 
 def compute_WAD(model, X_train, y_train, X_test, y_test, importance_order, num_steps=5):
     """
@@ -335,7 +330,7 @@ def compute_WAD(model, X_train, y_train, X_test, y_test, importance_order, num_s
         if len(idx_to_keep) == 0:
             break
         model1 = model.clone()
-        model1.fit(X_train[idx_to_keep], y_train[idx_to_keep], epochs=100, lr=0.1)
+        model1.fit(X_train[idx_to_keep], y_train[idx_to_keep], epochs=1000, lr=0.1)
         new_accuracy = accuracy_score(y_test, model1.predict(X_test))
         drop = initial_accuracy - new_accuracy
         accuracy_drop.append(drop)
@@ -343,50 +338,3 @@ def compute_WAD(model, X_train, y_train, X_test, y_test, importance_order, num_s
     # Tính WAD theo công thức
     wad = np.sum([1 / step * np.sum(accuracy_drop[:i]) for i, step in enumerate(steps[1:], start=1)])
     return wad
-
-
-# # Ví dụ
-# X_train = np.random.rand(100, 10)
-# y_train = np.random.randint(0, 2, 100)
-# X_test = np.random.rand(30, 10)
-# y_test = np.random.randint(0, 2, 30)
-# importance_order = np.arange(100)  # Ví dụ: Thứ tự giảm dần theo mức độ quan trọng
-
-# model = LogisticRegression()
-# wad_result = compute_WAD(model, X_train, y_train, X_test, y_test, importance_order)
-# print(f"WAD: {wad_result}")
-
-# if __name__ == "__main__":
-#     # Dữ liệu giả lập
-#     num_samples = 100
-#     input_dim = 10
-#     num_classes = 3
-#     data_values = np.random.rand(num_samples)
-#     x_train = np.random.rand(num_samples, input_dim)
-#     y_train = np.random.randint(0, num_classes, num_samples)
-#     x_valid = np.random.rand(20, input_dim)
-#     y_valid = np.random.randint(0, num_classes, 20)
-#     noise_indices = np.random.choice(num_samples, size=10, replace=False)
-
-#     # Noisy detection
-#     #print("\nNoisy Detection:")
-#     #noisy_result = noisy_detection(data_values, noise_indices)
-#     #print("Noisy Detection Result:", noisy_result)
-
-#     # Remove high/low value samples
-#     print("\nRemoving High/Low Value Samples:")
-#     result_high_low = remove_high_low(data_values, x_train, y_train, x_valid, y_valid, model_name='MLP', epochs=50)
-#     print("High/Low Removal Result:", result_high_low)
-
-#     # Discover corrupted samples
-#     print("\nDiscovering Corrupted Samples:")
-#     corrupted_result = discover_corrupted_sample(data_values, noise_indices)
-#     print("Corrupted Sample Discovery Result:", corrupted_result)
-
-#     # Performance by removing noise
-#     print("\nPerformance by Removing Noise:")
-#     performance_result = performance_remove_noise(data_values, noise_indices, x_train, y_train, x_valid, y_valid, model_name='LogisticRegression', percentile=0.1)
-#     print("Performance Result:", performance_result)
-#     # Visualize results
-#     plot_performance(result_high_low, evaluator_name='MLP')
-#     plot_corrupted_sample_discovery(corrupted_result, evaluator_name='MLP', noise_rate=0.1)

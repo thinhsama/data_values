@@ -2,7 +2,7 @@
 import argparse
 import torch
 import numpy as np
-from knn_shapley import KNNEvaluator
+from data_valuate import KNNEvaluator
 from datasets import download_iris, split_data_train_val_test
 
 def main(args):

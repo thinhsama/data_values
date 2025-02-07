@@ -34,6 +34,9 @@ def data_experiment(shap_vals_lst, shap_vals_algo_lst, X_train, y_train, X_test,
 
     # Loop through the data to remove or add incrementally
     for i in range(0, num_trn, round(num_trn * plot_every_percentage)):
+        print('position:', i)
+        if i> 1000:
+            break
         frac_data.append(round(i / num_trn, 2) * 100)
 
         for j, sorted_idxs in enumerate(sort_val_idxs_lst):
@@ -51,7 +54,7 @@ def data_experiment(shap_vals_lst, shap_vals_algo_lst, X_train, y_train, X_test,
                 model1.fit(X_train_subset, y_train_subset, epochs=1000, lr=0.1)
                 preds = model1.predict(X_test)
                 #acc = f1_score(y_test, preds, average='weighted') if metrics == 'acc' else roc_auc_score(y_test, preds)
-                acc = accuracy_score(y_test, preds) if metrics == 'acc' else roc_auc_score(y_test, preds)
+                acc = f1_score(y_test, preds, average='weighted') if metrics == 'acc' else roc_auc_score(y_test, preds)
             acc_score_lst[j].append(acc)
 
     data_dict = dict(zip(shap_vals_algo_lst, acc_score_lst))
@@ -68,13 +71,13 @@ def data_experiment(shap_vals_lst, shap_vals_algo_lst, X_train, y_train, X_test,
 # Run Multiple Experiments
 
 def run_experiments(shap_vals_lst, shap_vals_algo_lst, X_train, y_train, X_test, y_test, 
-                    model, metrics='acc', plot_every_percentage=0.001):
+                    model, metrics='acc', plot_every_percentage=0.05):
     
     experiment_configs = [
         (False, True, 'remove_low'),
-        (False, False, 'remove_high'),
-        (True, True, 'add_low'),
-        (True, False, 'add_high')
+       (False, False, 'remove_high'),
+       # (True, True, 'add_low'),
+       # (True, False, 'add_high')
     ]
 
     all_results = {}
@@ -90,7 +93,7 @@ def run_experiments(shap_vals_lst, shap_vals_algo_lst, X_train, y_train, X_test,
     # Plot final results after all experiments
     final_plot_avg(all_results, shap_vals_algo_lst, remove_add_ratio=30, xticks=list(range(10, 31, 10)), imbalance=False)
 
-
+# lấy đủ 4 ảnh
 # Final Plotting Function
 
 # def final_plot_avg(data_dict, shap_algo_lst, remove_add_ratio, xticks, imbalance=False):
@@ -165,14 +168,17 @@ def final_plot_avg(data_dict, shap_algo_lst, remove_add_ratio, xticks, imbalance
     line_style_map = {algo: 'solid' for algo in shap_algo_lst}
     marker_map = {algo: ['*', '+', 'o', 'd'][i % 4] for i, algo in enumerate(shap_algo_lst)}
 
-    data_lst = [data_dict['remove_low'], data_dict['remove_high'], data_dict['add_low'], data_dict['add_high']]
-    keys = ['frac_data_removed', 'frac_data_removed', 'frac_data_added', 'frac_data_added']
+    #data_lst = [data_dict['remove_low'], data_dict['remove_high'], data_dict['add_low'], data_dict['add_high']]
+    #keys = ['frac_data_removed', 'frac_data_removed', 'frac_data_added', 'frac_data_added']
 
-    subtitles = ['Removing low value data', 'Removing high value data',
-                 'Adding low value data', 'Adding high value data']
+    #subtitles = ['Removing low value data', 'Removing high value data',
+    #             'Adding low value data', 'Adding high value data']
+    
     x_labels = ['Fraction of data removed (%)'] * 2 + ['Fraction of data added (%)'] * 2
-
-    for i in range(4):
+    data_lst = [data_dict['remove_low'], data_dict['remove_high']]
+    keys = ['frac_data_removed', 'frac_data_removed']
+    subtitles = ['Removing low value data', 'Removing high value data']
+    for i in range(2):
         y_min, y_max = 1, 0
         x_vals = np.array(data_lst[i][keys[i]])
         bool_ratio = x_vals <= remove_add_ratio

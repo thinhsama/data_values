@@ -47,7 +47,7 @@ def mix_label(y_train: np.ndarray, y_valid: np.ndarray = None, noise_rate: float
         'noisy_train_indices': train_replace,
     }
 
-def add_gauss_noise(x_train: np.ndarray, x_valid: np.ndarray, x_test: Optional[np.ndarray] = None, noise_rate: float = 0.2, mu: float = 0.0, sigma: float = 1.0, random_state: int = 0) -> Dict[str, np.ndarray]:
+def add_gauss_noise(x_train: np.ndarray, x_valid: np.ndarray, x_test: Optional[np.ndarray] = None, noise_rate: float = 0.2, mu: float = 0.0, sigma: float = 1, random_state: int = 0) -> Dict[str, np.ndarray]:
     """
     Hàm thêm nhiễu Gaussian vào dữ liệu đầu vào.
 

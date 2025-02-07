@@ -7,8 +7,8 @@ import pandas as pd
 from matplotlib import pyplot as plt
 from typing import Any, Callable, Dict, List, Optional, Union
 
-from data_valuate import KNN_Shapley, DatasetDistance_geoloss, DatasetDistance_OT, KNNRegression, CKNN_Shapley, SAVA_OT, SAVA_OT_tanh, Hier_DatasetDistance_geoloss, Hier_DatasetDistance_OT  
-from data_valuate import TMCSampler, ClassWiseShapley, BetaShapley, Hier_SAVA_OT
+from data_valuate import KNN_Shapley, DatasetDistance_geoloss, DatasetDistance_OT, KNNRegression, CKNN_Shapley, SAVA_OT, SAVA_OT_tanh, Hier_DatasetDistance_OT  
+from data_valuate import TMCSampler, ClassWiseShapley, BetaShapley, Hier_SAVA_OT, TKNN_Shapley, SAVA_OT_savel2l
 from visualize import plot_corrupted_sample_discovery
 from experiment_method import discover_corrupted_sample, evaluate_label_noise, compute_WAD, evaluate_label_noise_20
 # f1_score
@@ -32,20 +32,38 @@ class BaseEvaluator:
         """
         raise NotImplementedError("This method should be implemented by subclasses.")
 
-
+class TKNNEvaluator(BaseEvaluator):
+    """
+    KNN-based evaluator using Shapley values.
+    """
+    def __init__(self, k_neighbors: int = 10, T:int = 0, default:bool =1, batch_size: int = 32, **kwargs):
+        super().__init__(**kwargs)
+        self.k_neighbors = k_neighbors
+        self.T = T
+        self.batch_size = batch_size
+        self.default = default
+    def evaluate_data_values(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor) -> np.ndarray:
+        dist_calculator = TKNN_Shapley(x_train, y_train, x_valid, y_valid, k_neighbors=self.k_neighbors, T= self.T, default=self.default ,batch_size=self.batch_size, random_state=self.random_state)
+        dist_calculator.train_data_values()
+        return dist_calculator.evaluate_data_values()
 class KNNEvaluator(BaseEvaluator):
     """
     KNN-based evaluator using Shapley values.
     """
-    def __init__(self, k_neighbors: int = 10, batch_size: int = 32, **kwargs):
+    def __init__(self, k_neighbors: int = 10, batch_size: int = 32, Ismetric: bool =0, **kwargs):
         super().__init__(**kwargs)
         self.k_neighbors = k_neighbors
         self.batch_size = batch_size
-
+        self.Ismetric = Ismetric
     def evaluate_data_values(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor) -> np.ndarray:
-        dist_calculator = KNN_Shapley(x_train, y_train, x_valid, y_valid, k_neighbors=self.k_neighbors, batch_size=self.batch_size, random_state=self.random_state)
+        if self.Ismetric ==1:
+            metric = 'cosine'
+        else:
+            metric = 'euclidean'
+        dist_calculator = KNN_Shapley(x_train, y_train, x_valid, y_valid, k_neighbors=self.k_neighbors, batch_size=self.batch_size, metric=metric, random_state=self.random_state)
         dist_calculator.train_data_values()
         return dist_calculator.evaluate_data_values()
+
 class CKNNEvaluator(BaseEvaluator):
     """
     KNN-based evaluator using Shapley values.
@@ -88,32 +106,32 @@ class LavaEvaluator_geomloss(BaseEvaluator):
         dist_calculator = DatasetDistance_geoloss(x_train, y_train, x_valid, y_valid, device=self.device, lam_x=self.lam_x, lam_y=self.lam_y)
         u, _ = dist_calculator.dual_sol()
         return dist_calculator.compute_distance(u)
-class HierLavaEvaluator(BaseEvaluator):
-    """
-    Lava evaluator using Optimal Transport.
-    """
-    def __init__(self, lam_x: float = 1.0, lam_y: float = 1.0, **kwargs):
-        super().__init__(**kwargs)
-        self.lam_x = lam_x
-        self.lam_y = lam_y
+# class HierLavaEvaluator(BaseEvaluator):
+#     """
+#     Lava evaluator using Optimal Transport.
+#     """
+#     def __init__(self, lam_x: float = 1.0, lam_y: float = 1.0, **kwargs):
+#         super().__init__(**kwargs)
+#         self.lam_x = lam_x
+#         self.lam_y = lam_y
 
-    def evaluate_data_values(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor) -> np.ndarray:
-        dist_calculator = Hier_DatasetDistance_OT(x_train, y_train, x_valid, y_valid, device=self.device, lam_x=self.lam_x, lam_y=self.lam_y)
-        u, _ = dist_calculator.dual_sol()
-        return dist_calculator.compute_distance(u)
-class HierLavaEvaluator(BaseEvaluator):
-    """
-    Lava evaluator using Optimal Transport.
-    """
-    def __init__(self, lam_x: float = 1.0, lam_y: float = 1.0, batch = 32, **kwargs):
-        super().__init__(**kwargs)
-        self.lam_x = lam_x
-        self.lam_y = lam_y
-        self.batch = batch
-    def evaluate_data_values(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor) -> np.ndarray:
-        dist_calculator = Hier_SAVA_OT(batch_size=self.batch)
-        dist = dist_calculator.evaluate_data_values(x_train, y_train, x_valid, y_valid, lam_x=self.lam_x, lam_y=self.lam_y)
-        return dist
+#     def evaluate_data_values(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor) -> np.ndarray:
+#         dist_calculator = Hier_DatasetDistance_OT(x_train, y_train, x_valid, y_valid, device=self.device, lam_x=self.lam_x, lam_y=self.lam_y)
+#         u, _ = dist_calculator.dual_sol()
+#         return dist_calculator.compute_distance(u)
+# class HierLavaEvaluator(BaseEvaluator):
+#     """
+#     Lava evaluator using Optimal Transport.
+#     """
+#     def __init__(self, lam_x: float = 1.0, lam_y: float = 1.0, batch = 32, **kwargs):
+#         super().__init__(**kwargs)
+#         self.lam_x = lam_x
+#         self.lam_y = lam_y
+#         self.batch = batch
+#     def evaluate_data_values(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor) -> np.ndarray:
+#         dist_calculator = Hier_SAVA_OT(batch_size=self.batch)
+#         dist = dist_calculator.evaluate_data_values(x_train, y_train, x_valid, y_valid, lam_x=self.lam_x, lam_y=self.lam_y)
+#         return dist
 class LavaEvaluator_batch(BaseEvaluator):
     """
     Lava evaluator using Optimal Transport.
@@ -125,6 +143,19 @@ class LavaEvaluator_batch(BaseEvaluator):
         self.batch = batch
     def evaluate_data_values(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor) -> np.ndarray:
         dist_calculator = SAVA_OT(batch_size=self.batch)
+        dist = dist_calculator.evaluate_data_values(x_train, y_train, x_valid, y_valid, lam_x=self.lam_x, lam_y=self.lam_y)
+        return dist
+class LavaEvaluator_batchl2l(BaseEvaluator):
+    """
+    Lava evaluator using Optimal Transport.
+    """
+    def __init__(self, lam_x: float = 1.0, lam_y: float = 1.0, batch = 32, **kwargs):
+        super().__init__(**kwargs)
+        self.lam_x = lam_x
+        self.lam_y = lam_y
+        self.batch = batch
+    def evaluate_data_values(self, x_train: torch.Tensor, y_train: torch.Tensor, x_valid: torch.Tensor, y_valid: torch.Tensor) -> np.ndarray:
+        dist_calculator = SAVA_OT_savel2l(batch_size=self.batch)
         dist = dist_calculator.evaluate_data_values(x_train, y_train, x_valid, y_valid, lam_x=self.lam_x, lam_y=self.lam_y)
         return dist
 class TMCEvaluator:
@@ -241,6 +272,7 @@ class ExperimentRunner:
     def evaluate(self, noisy_train_indices: np.ndarray) -> Dict[str, Any]:
         evaluation_corrupt = {}
         i = 0
+        plt.figure(figsize=(10, 6))
         for evaluator in self.evaluators:
             evaluator_name = self._get_evaluator_name(evaluator) + str(i)
             i+=1
@@ -248,8 +280,15 @@ class ExperimentRunner:
             evaluation_corrupt[evaluator_name] = discover_corrupted_sample(values, noisy_train_indices)
             
             #print(f"{evaluator_name}: {evaluation_corrupt[evaluator_name]}")
-            plot_corrupted_sample_discovery(evaluation_corrupt[evaluator_name], evaluator_name=evaluator_name, noise_rate=0.2)
-        
+            plot_corrupted_sample_discovery(evaluation_corrupt[evaluator_name], evaluator_name=evaluator_name, noise_rate=0.2, is_new_fig=False)
+        plt.xlabel("Proportion of data inspected")
+        plt.ylabel("Proportion of discovered corrupted samples")
+        plt.title("Comparison of multiple evaluators on the same plot")
+        plt.legend()
+        plt.grid(True)
+
+    # Cuối cùng mới show
+        plt.show()
         return evaluation_corrupt
     def calculate_WAD(self, model, num_steps) -> Dict[str, Any]:
         WAD = {}

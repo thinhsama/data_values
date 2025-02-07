@@ -68,8 +68,8 @@ These Jupyter notebooks provide structured experimental setups:
 - **`noise_tool.ipynb`**: Comparison with other noise detection tools
 
 ### Summary Results
-- **`all_algorithm1.ipynb`**: Aggregated results of all algorithms on various datasets
-- **`all_algorithm.ipynb`**: Aggregated results of all algorithms on a single dataset
+- **`all_algorithm1.ipynb`**: Aggregated results of all algorithms on primary datasets
+- **`all_algorithm.ipynb`**: Aggregated results of all algorithms on a primary dataset
 
 ## Sample Experimental Workflow
 ### Adding Noise

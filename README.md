@@ -121,7 +121,18 @@ from sklearn.metrics import f1_score
 accuracy = f1_score(yt_labels, y_pred, average='weighted')
 print("Accuracy:", accuracy)
 ```
-
+### calling algorithms
+```python
+from base_evaluator import BaseEvaluator, KNNEvaluator,CKNNEvaluator ,LavaEvaluator_geomloss, LavaEvaluator_OT, ExperimentRunner, LavaEvaluator_batch
+knn_evaluator = KNNEvaluator()
+cknn_evaluator1 = CKNNEvaluator(T = 20, default=False)
+cknn_evaluator2 = CKNNEvaluator(T = 300, default=False)
+cknn_evaluator3 = CKNNEvaluator(T = 700, default=False)
+lava_evaluator_batch1 = LavaEvaluator_batch(batch = 50)
+lava_evaluator_batch2 = LavaEvaluator_batch(batch = 500)
+lava_evaluator_OT = LavaEvaluator_OT()
+lava_evaluator_geomloss = LavaEvaluator_geomloss()
+```
 ### Running Experiments
 ```python
 experiment = ExperimentRunner(evaluators=[

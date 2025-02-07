@@ -150,7 +150,7 @@ experiment.evaluate(noisy_train_indices)
 experiment.calculate_label_noise_20(model, noisy_train_indices, 0.3)
 ```
 
-### API Usage
+### API Usage (preparing release)
 The API is defined in `parameter.py` and can be called accordingly.
 
 ---

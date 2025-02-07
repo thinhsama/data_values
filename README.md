@@ -72,6 +72,23 @@ These Jupyter notebooks provide structured experimental setups:
 - **`all_algorithm.ipynb`**: Aggregated results of all algorithms on a primary dataset
 
 ## Sample Experimental Workflow
+### Preparing dataset
+```python
+### Load x_y_embedding_data
+import pickle
+with open('x_y_embedding_cifar_lon.pkl', 'rb') as f:
+    #x_embeddings, y_labels, xt_embeddings, yt_labels = pickle.load(f)
+    embedding_default_train, finetuned_label_train, embedding_default_valid, finetuned_label_valid, embedding_default_test, finetuned_label_test = pickle.load(f)
+x_embeddings = embedding_default_train
+y_labels = finetuned_label_train
+xt_embeddings = embedding_default_test
+yt_labels = finetuned_label_test
+print("Training embeddings shape:", x_embeddings.shape)
+print("Training labels shape:", y_labels.shape)
+print("Validation embeddings shape:", xt_embeddings.shape)
+print("Validation labels shape:", yt_labels.shape)
+
+```
 ### Adding Noise
 ```python
 from machine_learning_model import LogisticRegression

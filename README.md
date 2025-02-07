@@ -1,28 +1,132 @@
-Thuật toán Data valuation nằm trong file: data_valuate.py
-Dataset trong file: datasets.py
-Tùy chỉnh embedding của ảnh trong file: embedding_img.py
-Chạy thực nghiệm các tác vụ so sánh f1 score, WAD score trong file: experiment_method.py
-Chạy thực nghiệm tác vụ so sánh thêm xóa dữ liệu trong file: experiment_run.py
-Bộ dataset ảnh (torch vision) trong file: img_dataset.py
-Bộ dataset NLP trong file: nlp_dataset.py
-Bộ dataset regression trong file: regression_dataset.py
-Tạo subset dataset trong file: subset_data.py
-Các thuật toán huấn luyện mô hình (machine learning) trong file: machine_learning_model.py
-Phương pháp thêm nhiễu vào dữ liệu trong file nosify.py
-Các phương pháp tìm nhiễu khác trong file: other_detect_noise.py
-visualize các ảnh thực nghiệm, plot ảnh bị nhiễu/lỗi trong file: visualize.py
-Def gọi API trong file: parameter.py
-Danh sách file thực nghiệm ipynb (hướng dẫn thực nghiệm):
-yte.ipynb: Thực nghiệm y tế
-unbalance_cifar.ipynb: thực nghiệm cifar mất cân bằng / thực nghiệm chọn tham số K, T cho KNN-shapley
-time_series.ipynb: thực nghiệm time-series
-table_data.ipynb: thực nghiệm table_data
-regression.ipynb: thực nghiệm regression
-NLP.ipynb: thực nghiệm NLP
-noise_tool.ipynb: thực nghiệm so sánh với các tool tìm nhiễu khác
-Kết quả trong bảng biểu chính:
-all_algorithm1.ipynb: tổng hợp luồn thực nghiệm chính của các thuật toán trên linh hoạt một vài bộ dữ liệu chính
-all_algorithm.ipynb: tổng hợp luồn thực nghiệm chính của các thuật toán trên linh hoạt một bộ dữ liệu chính
+# Data Valuation and Experimental Framework
+
+## Installation
+To install the necessary dependencies, use the following command:
+```bash
+pip install -r requirements.txt
+```
+The required libraries include:
+- `geomloss==0.2.6`
+- `POT==0.9.5`
+
+## Project Structure
+This repository contains implementations of various data valuation algorithms, experimental setups, and dataset utilities. Below is an overview of the files and their functionalities:
+
+### Core Algorithms
+- **`data_valuate.py`**: Implements data valuation algorithms:
+  - `CKNN_Shapley`: Improved KNN-Shapley
+  - `KNN_Shapley`: Traditional KNN-Shapley
+  - `KNN_regression`: Proposed KNN-Shapley for regression
+  - `DatasetDistance_geoloss`: Traditional LAVA
+  - `DatasetDistance_OT`: LAVA implemented with OT library
+  - `SAVA_OT`: Proposed batch LAVA
+  - `SAVA_OT_savel2l`: Batch LAVA with precomputed labels
+  - `TMCSampler`: Data Shapley
+  - `ClassWiseShapley`: CS Shapley
+  - `BetaShapley`: Beta Shapley
+
+### Supporting Modules
+- **`base_evaluator.py`**: Bridges algorithms and evaluation
+  - `BaseEvaluator`: Common `evaluate_data_values` function
+  - `ExperimentRunner`: Runs experiments across multiple algorithms
+    - `calculate_label_noise_20`: Selects 20% noisy data for F1-score
+    - `calculate_label_noise`: Uses a threshold (<0) for F1-score
+    - `calculate_WAD`: Computes WAD score
+    - `evaluate`: Generates result tables
+    - `plot_results`: Visualizes results
+    - `save_results`: Saves results
+    - `_get_evaluator_name`: Retrieves evaluator names
+    - `run`: Executes data valuation algorithms
+
+### Datasets
+- **`datasets.py`**: General dataset utilities
+- **`img_dataset.py`**: Image dataset (Torch Vision)
+- **`nlp_dataset.py`**: NLP dataset
+- **`regression_dataset.py`**: Regression dataset
+- **`subset_data.py`**: Creates dataset subsets
+
+### Machine Learning & Data Processing
+- **`embedding_img.py`**: Image embedding customization
+- **`machine_learning_model.py`**: Machine learning model training algorithms
+- **`nosify.py`**: Methods for adding noise to data
+- **`other_detect_noise.py`**: Additional noise detection methods
+
+### Experimentation
+- **`experiment_method.py`**: Runs experiments comparing F1-score, WAD score
+- **`experiment_run.py`**: Compares adding/removing data in experiments
+- **`visualize.py`**: Visualization of noisy/error-affected images
+- **`parameter.py`**: API definitions
+
+## Experimentation Notebooks
+These Jupyter notebooks provide structured experimental setups:
+- **`yte.ipynb`**: Medical experiment
+- **`unbalance_cifar.ipynb`**: Imbalanced CIFAR dataset & KNN-Shapley parameter tuning
+- **`time_series.ipynb`**: Time-series experiment
+- **`table_data.ipynb`**: Table data experiment
+- **`regression.ipynb`**: Regression experiment
+- **`NLP.ipynb`**: NLP experiment
+- **`noise_tool.ipynb`**: Comparison with other noise detection tools
+
+### Summary Results
+- **`all_algorithm1.ipynb`**: Aggregated results of all algorithms on various datasets
+- **`all_algorithm.ipynb`**: Aggregated results of all algorithms on a single dataset
+
+## Sample Experimental Workflow
+### Adding Noise
+```python
+from machine_learning_model import LogisticRegression
+from nosify import mix_label
+
+# Introduce noise into labels
+y_copy = y_labels.copy()
+yt_copy = yt_labels.copy()
+param = mix_label(y_copy, yt_copy, noise_rate=0.2)
+y_labels_noisy = param['y_train']
+noisy_train_indices = param['noisy_train_indices']
+print("Noisy training labels shape:", y_labels_noisy.shape)
+```
+
+### Training a Model
+```python
+# Train logistic regression model
+input_dim = x_embeddings.shape[1]
+num_classes = len(np.unique(y_labels))
+model = LogisticRegression(input_dim, num_classes)
+model.fit(x_embeddings, y_labels_noisy, epochs=1000, lr=0.1)
+
+# Predict
+y_pred = model.predict(xt_embeddings)
+```
+
+### Evaluation
+```python
+from sklearn.metrics import f1_score
+accuracy = f1_score(yt_labels, y_pred, average='weighted')
+print("Accuracy:", accuracy)
+```
+
+### Running Experiments
+```python
+experiment = ExperimentRunner(evaluators=[
+    knn_evaluator, cknn_evaluator1, cknn_evaluator2,
+    cknn_evaluator3, lava_evaluator_batch1, lava_evaluator_batch2,
+    lava_evaluator_OT, lava_evaluator_geomloss
+])
+
+results = experiment.run(x_embeddings, y_labels_noisy, xt_embeddings, yt_labels)
+experiment.evaluate(noisy_train_indices)
+```
+
+### Computing F1 Score for Noisy Data
+```python
+experiment.calculate_label_noise_20(model, noisy_train_indices, 0.3)
+```
+
+### API Usage
+The API is defined in `parameter.py` and can be called accordingly.
+
+---
+This repository provides a structured framework for evaluating data quality, running machine learning experiments, and analyzing dataset reliability using multiple state-of-the-art techniques.
 
 
 
